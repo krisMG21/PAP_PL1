@@ -1,0 +1,7 @@
+# Ignore everything in PL1 directory
+/PL1/*
+
+# But keep track of .cu, .bmp and .cpp files
+!/PL1/**/*.cu
+!/PL1/**/*.bmp
+!/PL1/**/*.cpp
