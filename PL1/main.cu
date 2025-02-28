@@ -27,5 +27,4 @@ Introduzca la ruta base de la imagen: \n \
         (3) Identificar colores \n \
         (4) Filtro y delineado \n \
         (5) Cálculo de pseudo-hash \n");
-
 }
