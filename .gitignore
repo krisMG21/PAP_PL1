@@ -3,5 +3,6 @@
 
 # But keep track of .cu, .bmp and .cpp files
 !/PL1/**/*.cu
+!/PL1/**/*.h
 !/PL1/**/*.bmp
 !/PL1/**/*.cpp

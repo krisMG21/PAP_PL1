@@ -4,30 +4,31 @@
 
 #include <stdio.h>
 
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size);
+cudaError_t procImgCuda(int *c, const int *a, const int *b, unsigned int size);
 
-__global__ void addKernel(int *c, const int *a, const int *b)
+typedef struct {
+    unsigned char r, g, b;
+    } Pixel;
+__global__ void procImgKernel(int *c, const int *a, const int *b)
 {
     int i = threadIdx.x;
     c[i] = a[i] + b[i];
 }
 
-int main()
+int procImg(Pixel* pixels, int nrows, int ncolumns)
 {
-    const int arraySize = 5;
-    const int a[arraySize] = { 1, 2, 3, 4, 5 };
-    const int b[arraySize] = { 10, 20, 30, 40, 50 };
-    int c[arraySize] = { 0 };
+    int pixelsSize = nrows * ncolumns;
+    
+    // Transformar el array de pixels a una matriz de pixeles teniendo en cuenta el numero
+    
 
-    // Add vectors in parallel.
-    cudaError_t cudaStatus = addWithCuda(c, a, b, arraySize);
+    // process image in parallel
+    cudaError_t cudaStatus = procImgCuda(processedPixels,pixels,nrows,ncolumns,pixelsSize);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "addWithCuda failed!");
         return 1;
     }
 
-    printf("{1,2,3,4,5} + {10,20,30,40,50} = {%d,%d,%d,%d,%d}\n",
-        c[0], c[1], c[2], c[3], c[4]);
 
     // cudaDeviceReset must be called before exiting in order for profiling and
     // tracing tools such as Nsight and Visual Profiler to show complete traces.
@@ -36,13 +37,13 @@ int main()
         fprintf(stderr, "cudaDeviceReset failed!");
         return 1;
     }
-
     return 0;
 }
 
 // Helper function for using CUDA to add vectors in parallel.
-cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
+cudaError_t procImgCuda(Pixel* pixels, Pixel* processedPixels , int nrows, int ncolumns, int pixelsSize)
 {
+    
     int *dev_a = 0;
     int *dev_b = 0;
     int *dev_c = 0;
@@ -87,8 +88,10 @@ cudaError_t addWithCuda(int *c, const int *a, const int *b, unsigned int size)
         goto Error;
     }
 
+    
+
     // Launch a kernel on the GPU with one thread for each element.
-    addKernel<<<1, size>>>(dev_c, dev_a, dev_b);
+    procImgKernel<<<1, size>>>(dev_c, dev_a, dev_b);
 
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();

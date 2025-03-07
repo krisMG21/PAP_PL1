@@ -41,11 +41,15 @@ struct BMPImage_t {
     uint8_t* data;
 };
 
-struct RGB_t {
-    uint8_t r, g, b;
-};
+// Eliminamos RGB_t y utilizamos Pixel en su lugar
 
-const RGB_t BLACK = { 0,0,0 };
+// Definimos el tipo de dato Pixel
+typedef struct {
+    unsigned char r, g, b;
+} Pixel;
+
+// Constante de color negro
+const Pixel BLACK = { 0, 0, 0 };
 
 static int getPadding(const BMPHeader_t* header) {
     return (4 - (header->width_px * BYTES_PER_PIXEL) % 4) % 4;
@@ -121,30 +125,34 @@ void DestroyBMP(BMPImage_t* bmp) {
         if (bmp->data) {
             free(bmp->data);
         }
-		free(bmp);
+        free(bmp);
     }
 }
 
-RGB_t GetPixel(BMPImage_t* bmp, int x, int y) {
+Pixel GetPixel(BMPImage_t* bmp, int x, int y) {
     if (x < 0 || x >= bmp->header.width_px || y < 0 || y >= bmp->header.height_px) {
         std::cerr << "Error: Pixel out of bounds!" << std::endl;
         return BLACK;
     }
 
     int pos = getPosition(&bmp->header, x, y);
-    return { bmp->data[pos + 2], bmp->data[pos + 1], bmp->data[pos + 0] };
+    Pixel p;
+    p.r = bmp->data[pos + 2];
+    p.g = bmp->data[pos + 1];
+    p.b = bmp->data[pos + 0];
+    return p;
 }
 
-void SetPixel(BMPImage_t* bmp, int x, int y, RGB_t rgb) {
+void SetPixel(BMPImage_t* bmp, int x, int y, Pixel pixel) {
     if (x < 0 || x >= bmp->header.width_px || y < 0 || y >= bmp->header.height_px) {
         std::cerr << "Error: Pixel out of bounds!" << std::endl;
         return;
     }
 
     int pos = getPosition(&bmp->header, x, y);
-    bmp->data[pos + 2] = rgb.r;
-    bmp->data[pos + 1] = rgb.g;
-    bmp->data[pos + 0] = rgb.b;
+    bmp->data[pos + 2] = pixel.r;
+    bmp->data[pos + 1] = pixel.g;
+    bmp->data[pos + 0] = pixel.b;
 }
 
 int main(int argc, char* argv[]) {
@@ -155,7 +163,7 @@ int main(int argc, char* argv[]) {
     const char* filename = argv[1];
     BMPImage_t* bmp = ReadBMP(filename);
 
-    RGB_t black = { 0,0,0 };
+    Pixel black = { 0, 0, 0 };
     for (int i = 0; i < 1280; i++) {
         SetPixel(bmp, i, 10, black);
     }
