@@ -5,6 +5,8 @@
 #include <cmath>
 #include "procImg.h" // Donde se declara Pixel y la funcion procImg(...)
 
+
+
 ////////////////////////////////////////////////////////////////////////////////
 // Kernel: Convierte un pixel a escala de grises
 ////////////////////////////////////////////////////////////////////////////////
@@ -50,136 +52,66 @@ __global__ void invertColorsKernel(Pixel* d_pixels, int width, int height)
 __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
     int width, int height, int tamFiltro)
 {
-    // Mitad del filtro
-    int radius = tamFiltro / 2;
-
-    // Coordenadas globales del hilo en la imagen
+    // Coordenadas globales del píxel
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
+    bool inside = (gx < width) && (gy < height);
 
-    // Dimensiones del tile ampliado en shared memory (bloque + 2*halo)
-    int tileW = blockDim.x + 2 * radius;
-    int tileH = blockDim.y + 2 * radius;
+    // Memoria compartida para la tesela y la reducción
+    extern __shared__ int shared_mem[];
+    Pixel* sData = (Pixel*)shared_mem;
+    int* sR = (int*)(sData + blockDim.x * blockDim.y);
+    int* sG = sR + blockDim.x * blockDim.y;
+    int* sB = sG + blockDim.x * blockDim.y;
+    int* sCount = sB + blockDim.x * blockDim.y;
 
-    // Memoria compartida dinamica
-    extern __shared__ Pixel sData[];  // tamaño tileW * tileH
+    int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
-    // Coordenadas locales dentro del tile
-    // Dejas radius celdas a la izquierda/arriba para el halo
-    int sX = threadIdx.x + radius;
-    int sY = threadIdx.y + radius;
-
-    // Cargar el pixel central
-    if (gx < width && gy < height) {
-        sData[sY * tileW + sX] = d_in[gy * width + gx];
-    }
-    else {
-        sData[sY * tileW + sX] = { 0,0,0 };
+    // Cargar píxel en memoria compartida
+    if (inside) {
+        sData[tid] = d_in[gy * width + gx];
+    } else {
+        sData[tid] = {0, 0, 0};
     }
 
-    // Cargar el halo a la izquierda (si threadIdx.x < radius)
-    // Cada hilo que esté en la "columna" [0..radius-1] se encarga de traer esos pixeles (gx - i). 
-    for (int i = 1; i <= radius; i++) {
-        if (threadIdx.x < radius) {
-            int haloXlocal = sX - i;   // sX - (1..radius)
-            int haloXglobal = gx - i;  // gx - (1..radius)
-            if (haloXlocal >= 0 && haloXglobal >= 0 && gy < height) {
-                sData[sY * tileW + haloXlocal] = d_in[gy * width + haloXglobal];
-            }
-            else {
-                sData[sY * tileW + haloXlocal] = { 0,0,0 };
-            }
-        }
-    }
+    // Inicializar acumuladores
+    sR[tid] = (inside) ? sData[tid].r : 0;
+    sG[tid] = (inside) ? sData[tid].g : 0;
+    sB[tid] = (inside) ? sData[tid].b : 0;
+    sCount[tid] = (inside) ? 1 : 0;
 
-    // Cargar el halo a la derecha (si threadIdx.x >= blockDim.x - radius)
-    for (int i = 1; i <= radius; i++) {
-        int edgeX = blockDim.x - radius;
-        if (threadIdx.x >= edgeX) {
-            int haloXlocal = sX + i;   // sX + (1..radius)
-            int haloXglobal = gx + i;  // gx + (1..radius)
-            if (haloXlocal < tileW && haloXglobal < width && gy < height) {
-                sData[sY * tileW + haloXlocal] = d_in[gy * width + haloXglobal];
-            }
-            else {
-                sData[sY * tileW + haloXlocal] = { 0,0,0 };
-            }
-        }
-    }
-
-    // Cargar el halo superior (si threadIdx.y < radius)
-    for (int j = 1; j <= radius; j++) {
-        if (threadIdx.y < radius) {
-            int haloYlocal = sY - j;
-            int haloYglobal = gy - j;
-            if (haloYlocal >= 0 && haloYglobal >= 0 && gx < width) {
-                sData[haloYlocal * tileW + sX] = d_in[haloYglobal * width + gx];
-            }
-            else {
-                sData[haloYlocal * tileW + sX] = { 0,0,0 };
-            }
-        }
-    }
-
-    // Cargar el halo inferior (si threadIdx.y >= blockDim.y - radius)
-    for (int j = 1; j <= radius; j++) {
-        int edgeY = blockDim.y - radius;
-        if (threadIdx.y >= edgeY) {
-            int haloYlocal = sY + j;
-            int haloYglobal = gy + j;
-            if (haloYlocal < tileH && haloYglobal < height && gx < width) {
-                sData[haloYlocal * tileW + sX] = d_in[haloYglobal * width + gx];
-            }
-            else {
-                sData[haloYlocal * tileW + sX] = { 0,0,0 };
-            }
-        }
-    }
-
-    // Sincronizar para asegurar que todo el tile se ha cargado
     __syncthreads();
 
-    // ------------------------------------------------------------------------
-    // Calcular el promedio en la ventana tamFiltro x tamFiltro
-    // ------------------------------------------------------------------------
-    if (gx < width && gy < height) {
-        int sumR = 0, sumG = 0, sumB = 0;
-        int count = 0;
-
-        // La posicion local base
-        for (int fy = -radius; fy <= radius; fy++) {
-            for (int fx = -radius; fx <= radius; fx++) {
-                int nx = sX + fx;  // coords en sData
-                int ny = sY + fy;
-
-                // Comprobar submatriz
-                if (nx >= 0 && nx < tileW && ny >= 0 && ny < tileH) {
-                    // Comprobar coords globales para no sumar pixeles fuera
-                    int gx2 = gx + fx;
-                    int gy2 = gy + fy;
-                    if (gx2 >= 0 && gx2 < width && gy2 >= 0 && gy2 < height) {
-                        Pixel pp = sData[ny * tileW + nx];
-                        sumR += pp.r;
-                        sumG += pp.g;
-                        sumB += pp.b;
-                        count++;
-                    }
-                }
-            }
+    // Reducción paralela para sumar R, G, B y contar píxeles válidos
+    for (int stride = blockDim.x * blockDim.y / 2; stride > 0; stride >>= 1) {
+        if (tid < stride) {
+            sR[tid] += sR[tid + stride];
+            sG[tid] += sG[tid + stride];
+            sB[tid] += sB[tid + stride];
+            sCount[tid] += sCount[tid + stride];
         }
-
-        if (count > 0) {
-            unsigned char outR = (unsigned char)(sumR / float(count));
-            unsigned char outG = (unsigned char)(sumG / float(count));
-            unsigned char outB = (unsigned char)(sumB / float(count));
-            d_out[gy * width + gx] = { outR, outG, outB };
-        }
-        else {
-            // Caso raro en bordes
-            d_out[gy * width + gx] = { 0,0,0 };
-        }
+        __syncthreads();
     }
-}
+
+    // Thread 0 calcula el promedio y lo almacena en sData[0]
+    if (tid == 0) {
+        Pixel avg;
+        if (sCount[0] > 0) {
+            avg.r = (unsigned char)(sR[0] / sCount[0]);
+            avg.g = (unsigned char)(sG[0] / sCount[0]);
+            avg.b = (unsigned char)(sB[0] / sCount[0]);
+        } else {
+            avg = {0, 0, 0};
+        }
+        sData[0] = avg;
+    }
+
+    __syncthreads();
+
+    // Todos los hilos escriben el promedio en su píxel
+    if (inside) {
+        d_out[gy * width + gx] = sData[0];
+    }
 
 // para la carga completa del halo.
 int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
@@ -263,6 +195,7 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         int tileW = blockDim.x + 2 * radius;
         int tileH = blockDim.y + 2 * radius;
         size_t needed = tileW * tileH * sizeof(Pixel);
+        //size_t needed = blockSize.x * blockSize.y * (sizeof(Pixel) + 4 * sizeof(int));
 
         if (needed > prop.sharedMemPerBlock) {
             fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, pero solo hay %zu.\n",
