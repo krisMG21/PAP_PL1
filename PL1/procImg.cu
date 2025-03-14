@@ -70,8 +70,9 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
     // Cargar píxel en memoria compartida
     if (inside) {
         sData[tid] = d_in[gy * width + gx];
-    } else {
-        sData[tid] = {0, 0, 0};
+    }
+    else {
+        sData[tid] = { 0, 0, 0 };
     }
 
     // Inicializar acumuladores
@@ -100,8 +101,9 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
             avg.r = (unsigned char)(sR[0] / sCount[0]);
             avg.g = (unsigned char)(sG[0] / sCount[0]);
             avg.b = (unsigned char)(sB[0] / sCount[0]);
-        } else {
-            avg = {0, 0, 0};
+        }
+        else {
+            avg = { 0, 0, 0 };
         }
         sData[0] = avg;
     }
@@ -112,7 +114,7 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
     if (inside) {
         d_out[gy * width + gx] = sData[0];
     }
-
+}
 // para la carga completa del halo.
 int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
 {
@@ -191,20 +193,35 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
 
     case 31: // Pixelar color
     {
-        int radius = tamFiltro / 2;
+        /*int radius = tamFiltro / 2;
         int tileW = blockDim.x + 2 * radius;
-        int tileH = blockDim.y + 2 * radius;
-        size_t needed = tileW * tileH * sizeof(Pixel);
-        //size_t needed = blockSize.x * blockSize.y * (sizeof(Pixel) + 4 * sizeof(int));
+        int tileH = blockDim.y + 2 * radius;*/
+        /*size_t needed = tileW * tileH * sizeof(Pixel);
+        size_t needed = blockSize.x * blockSize.y * (sizeof(Pixel) + 4 * sizeof(int));*/
+        // Calcular la memoria compartida necesaria para pixelateKernel
+        int nThreads = blockDim.x * blockDim.y;
 
-        if (needed > prop.sharedMemPerBlock) {
+        // Tamaño para los pixeles
+        size_t sizeData = nThreads * sizeof(Pixel);
+
+        // Tamaño para R, G, B, Count (4 int arrays)
+        size_t sizeR = nThreads * sizeof(int);
+        size_t sizeG = nThreads * sizeof(int);
+        size_t sizeB = nThreads * sizeof(int);
+        size_t sizeCount = nThreads * sizeof(int);
+
+        // Total
+        size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
+
+
+        if (totalNeeded > prop.sharedMemPerBlock) {
             fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, pero solo hay %zu.\n",
-                tamFiltro, needed, (size_t)prop.sharedMemPerBlock);
+                tamFiltro, totalNeeded, (size_t)prop.sharedMemPerBlock);
             cudaFree(d_in); cudaFree(d_out);
             return 1;
         }
 
-        pixelateKernel << <gridDim, blockDim, needed >> > (d_in, d_out, width, height, tamFiltro);
+        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height, tamFiltro);
     }
     break;
 
@@ -213,19 +230,28 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
         cudaDeviceSynchronize();
 
-        int radius = tamFiltro / 2;
-        int tileW = blockDim.x + 2 * radius;
-        int tileH = blockDim.y + 2 * radius;
-        size_t needed = tileW * tileH * sizeof(Pixel);
+        int nThreads = blockDim.x * blockDim.y;
 
-        if (needed > prop.sharedMemPerBlock) {
+        // Tamaño para los pixeles
+        size_t sizeData = nThreads * sizeof(Pixel);
+
+        // Tamaño para R, G, B, Count (4 int arrays)
+        size_t sizeR = nThreads * sizeof(int);
+        size_t sizeG = nThreads * sizeof(int);
+        size_t sizeB = nThreads * sizeof(int);
+        size_t sizeCount = nThreads * sizeof(int);
+
+        // Total
+        size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
+
+        if (totalNeeded > prop.sharedMemPerBlock) {
             fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, solo hay %zu.\n",
-                tamFiltro, needed, (size_t)prop.sharedMemPerBlock);
+                tamFiltro, totalNeeded, (size_t)prop.sharedMemPerBlock);
             cudaFree(d_in); cudaFree(d_out);
             return 1;
         }
 
-        pixelateKernel << <gridDim, blockDim, needed >> > (d_in, d_out, width, height, tamFiltro);
+        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height, tamFiltro);
     }
     break;
 
