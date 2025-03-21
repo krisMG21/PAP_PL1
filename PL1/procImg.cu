@@ -5,44 +5,11 @@
 #include <cmath>
 #include "procImg.h" // Donde se declara Pixel y la funcion procImg(...)
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-// -----------------------------------------------------------------------------
-// Memoria de constantes para los umbrales de color
-// Cada color (rojo, verde, azul) tendrá 6 enteros [Rmin,Rmax, Gmin,Gmax, Bmin,Bmax]
-// -----------------------------------------------------------------------------
-__constant__ int c_threshRed[6];
-__constant__ int c_threshGreen[6];
-__constant__ int c_threshBlue[6];
 
-// -----------------------------------------------------------------------------
-// Funciones para copiar umbrales desde host a device (const memory)
-// -----------------------------------------------------------------------------
-cudaError_t setRedThresholds(const int hostThresh[6]) {
-    return cudaMemcpyToSymbol(c_threshRed, hostThresh, 6 * sizeof(int));
-}
 
-cudaError_t setGreenThresholds(const int hostThresh[6]) {
-    return cudaMemcpyToSymbol(c_threshGreen, hostThresh, 6 * sizeof(int));
-}
-
-cudaError_t setBlueThresholds(const int hostThresh[6]) {
-    return cudaMemcpyToSymbol(c_threshBlue, hostThresh, 6 * sizeof(int));
-}
->>>>>>> Stashed changes
-
-// -----------------------------------------------------------------------------
-// Kernel: Convierte un pixel a escala de grises (in-place)
-// -----------------------------------------------------------------------------
+////////////////////////////////////////////////////////////////////////////////
+// Kernel: Convierte un pixel a escala de grises
+////////////////////////////////////////////////////////////////////////////////
 __global__ void toGrayKernel(Pixel* d_pixels, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -63,10 +30,10 @@ __global__ void toGrayKernel(Pixel* d_pixels, int width, int height)
     }
 }
 
-// -----------------------------------------------------------------------------
-// Kernel: Invierte colores (in-place)
+////////////////////////////////////////////////////////////////////////////////
+// Kernel: Invierte colores
 // R = 255 - R, G = 255 - G, B = 255 - B
-// -----------------------------------------------------------------------------
+////////////////////////////////////////////////////////////////////////////////
 __global__ void invertColorsKernel(Pixel* d_pixels, int width, int height)
 {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -79,51 +46,24 @@ __global__ void invertColorsKernel(Pixel* d_pixels, int width, int height)
     }
 }
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 // Kernel: Pixelado con filtro cuadrado de tamFiltro x tamFiltro
 // Cada hilo copia no solo su pixel central, sino tambien parte del halo.
 // Sin padding artificial: si la ventana se sale de [0..width-1], [0..height-1], no aporta nada (no se suma).
 __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
     int width, int height, int tamFiltro)
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-// -----------------------------------------------------------------------------
-// Kernel: Pixelado con filtro basado en blockDim.x * blockDim.y
-// (Sin padding artificial).
-// Cada bloque calcula el promedio de todos los píxeles que lo conforman.
-// -----------------------------------------------------------------------------
-__global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out, int width, int height)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 {
     // Coordenadas globales del píxel
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
     int gy = blockIdx.y * blockDim.y + threadIdx.y;
     bool inside = (gx < width) && (gy < height);
 
-    // Memoria compartida para la tesela (bloque) y la reducción
+    // Memoria compartida para la tesela y la reducción
     extern __shared__ int shared_mem[];
     Pixel* sData = (Pixel*)shared_mem;
     int* sR = (int*)(sData + blockDim.x * blockDim.y);
-    int* sG = sR + (blockDim.x * blockDim.y);
-    int* sB = sG + (blockDim.x * blockDim.y);
-    int* sCount = sB + (blockDim.x * blockDim.y);
+    int* sG = sR + blockDim.x * blockDim.y;
+    int* sB = sG + blockDim.x * blockDim.y;
+    int* sCount = sB + blockDim.x * blockDim.y;
 
     int tid = threadIdx.y * blockDim.x + threadIdx.x;
 
@@ -132,7 +72,6 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out, int width, int h
         sData[tid] = d_in[gy * width + gx];
     }
     else {
-        // Si está fuera, lo ponemos a 0
         sData[tid] = { 0, 0, 0 };
     }
 
@@ -145,7 +84,7 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out, int width, int h
     __syncthreads();
 
     // Reducción paralela para sumar R, G, B y contar píxeles válidos
-    for (int stride = (blockDim.x * blockDim.y) / 2; stride > 0; stride >>= 1) {
+    for (int stride = blockDim.x * blockDim.y / 2; stride > 0; stride >>= 1) {
         if (tid < stride) {
             sR[tid] += sR[tid + stride];
             sG[tid] += sG[tid + stride];
@@ -155,7 +94,7 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out, int width, int h
         __syncthreads();
     }
 
-    // Thread 0 del bloque calcula el promedio y lo almacena en sData[0]
+    // Thread 0 calcula el promedio y lo almacena en sData[0]
     if (tid == 0) {
         Pixel avg;
         if (sCount[0] > 0) {
@@ -176,97 +115,15 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out, int width, int h
         d_out[gy * width + gx] = sData[0];
     }
 }
-<<<<<<< Updated upstream
 // para la carga completa del halo.
 int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
-=======
-
-// -----------------------------------------------------------------------------
-// Kernel: Identificación de colores (out-of-place).
-// thrColor en memoria constante (c_threshRed, c_threshGreen, c_threshBlue).
-// Se hace atomicAdd a d_countColor cuando un píxel cumple la condición.
-// -----------------------------------------------------------------------------
-__device__ bool checkColor(const Pixel& px, const int thr[6])
-{
-    // thr: [Rmin,Rmax, Gmin,Gmax, Bmin,Bmax]
-    if (px.r < thr[0] || px.r > thr[1]) return false;
-    if (px.g < thr[2] || px.g > thr[3]) return false;
-    if (px.b < thr[4] || px.b > thr[5]) return false;
-    return true;
-}
-
-__global__ void identifyKernel(const Pixel* d_in, Pixel* d_out,
-    int width, int height,
-    const int* thrColor,
-    unsigned int* d_countColor)
-{
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    if (x < width && y < height) {
-        int idx = y * width + x;
-        Pixel p = d_in[idx];
-
-        bool isColor = checkColor(p, thrColor);
-        if (isColor) {
-            // Mantener color
-            d_out[idx] = p;
-            // Atomically incrementar contador
-            atomicAdd(d_countColor, 1u);
-        }
-        else {
-            // Pintar en blanco
-            d_out[idx] = { 255, 255, 255 };
-        }
-    }
-}
-
-// -----------------------------------------------------------------------------
-// Función principal para procesar la imagen
-// -----------------------------------------------------------------------------
-int procImg(Pixel* pixels, int height, int width,
-    int option, int filterDiv, unsigned int* outCount)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 {
     cudaError_t cudaStatus;
     Pixel* d_in = nullptr;
     Pixel* d_out = nullptr;
     int totalPixels = width * height;
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
     // 1) Info de la GPU
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-    // Si el usuario pasa un outCount, lo iniciamos a 0
-    if (outCount) *outCount = 0;
-
-    // 1) Obtener info de la GPU (para blockDim / gridDim)
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     int devID = 0;
     cudaDeviceProp prop;
     cudaStatus = cudaGetDeviceProperties(&prop, devID);
@@ -275,10 +132,6 @@ int procImg(Pixel* pixels, int height, int width,
         return 1;
     }
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
     // 2) Determinar blockDim.x = blockDim.y = bCandidate
     int maxThreads = prop.maxThreadsPerBlock;
     int bCandidate = static_cast<int>(floorf(std::sqrtf((float)maxThreads)));
@@ -300,51 +153,13 @@ int procImg(Pixel* pixels, int height, int width,
     printf("================\n");
 
     // 4) Seleccionar device
-=======
-    // 2) Seleccionar la GPU
->>>>>>> Stashed changes
-=======
-    // 2) Seleccionar la GPU
->>>>>>> Stashed changes
-=======
-    // 2) Seleccionar la GPU
->>>>>>> Stashed changes
-=======
-    // 2) Seleccionar la GPU
->>>>>>> Stashed changes
     cudaStatus = cudaSetDevice(devID);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaSetDevice failed!\n");
         return 1;
     }
 
-    // 3) Determinar blockDim.x = blockDim.y = bCandidate
-    int maxThreads = prop.maxThreadsPerBlock;
-    int bCandidate = static_cast<int>(floorf(std::sqrtf((float)maxThreads)));
-    if (bCandidate > prop.maxThreadsDim[0]) bCandidate = prop.maxThreadsDim[0];
-    if (bCandidate > prop.maxThreadsDim[1]) bCandidate = prop.maxThreadsDim[1];
-
-    // Valor inicial de blockDim
-    dim3 blockDim(bCandidate, bCandidate, 1);
-    // Calculo inicial de grid
-    int gridX = (width + blockDim.x - 1) / blockDim.x;
-    int gridY = (height + blockDim.y - 1) / blockDim.y;
-    dim3 gridDim(gridX, gridY, 1);
-
-    // Asegurarnos de que filterDiv sea valido para no obtener blockDim=0
-    if (filterDiv < 1) filterDiv = 1;
-    if (filterDiv > bCandidate) filterDiv = bCandidate;
-
-    printf("=== GPU Info ===\n");
-    printf("Device: %s\n", prop.name);
-    printf("Compute Capability: %d.%d\n", prop.major, prop.minor);
-    printf("MaxThreadsPerBlock: %d\n", maxThreads);
-    printf("Initial blockDim=(%d,%d), gridDim=(%d,%d)\n",
-        blockDim.x, blockDim.y, gridDim.x, gridDim.y);
-    printf("filterDiv = %d\n", filterDiv);
-    printf("================\n");
-
-    // 4) Reservar memoria en GPU
+    // 5) Reservar memoria en GPU
     cudaStatus = cudaMalloc((void**)&d_in, totalPixels * sizeof(Pixel));
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMalloc d_in failed!\n");
@@ -357,79 +172,27 @@ int procImg(Pixel* pixels, int height, int width,
         return 1;
     }
 
-    // 5) Copiar la imagen host->device
+    // 6) Copiar la imagen host->device
     cudaStatus = cudaMemcpy(d_in, pixels, totalPixels * sizeof(Pixel), cudaMemcpyHostToDevice);
     if (cudaStatus != cudaSuccess) {
-        fprintf(stderr, "cudaMemcpy Host->Device failed!\n");
+        fprintf(stderr, "cudaMemcpy H->D failed!\n");
         cudaFree(d_in);
         cudaFree(d_out);
         return 1;
     }
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
     // 7) Segun la opcion
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-    // 6) Si necesitamos contadores (para identificar colores)
-    unsigned int* d_count = nullptr;
-    if (option == 41 || option == 42 || option == 43) {
-        cudaStatus = cudaMalloc((void**)&d_count, sizeof(unsigned int));
-        if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaMalloc d_count failed!\n");
-            cudaFree(d_in);
-            cudaFree(d_out);
-            return 1;
-        }
-        unsigned int zero = 0;
-        cudaStatus = cudaMemcpy(d_count, &zero, sizeof(unsigned int), cudaMemcpyHostToDevice);
-        if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaMemcpy d_count init failed!\n");
-            cudaFree(d_in);
-            cudaFree(d_out);
-            cudaFree(d_count);
-            return 1;
-        }
-    }
-
-    // Variable para saber si el resultado final esta en d_out
-    bool devResultIn_d_out = false;
-
-    // 7) Lanzar el kernel segun la opcion
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     switch (option) {
-    case 1: // Blanco y Negro => in-place
+    case 1: // Blanco y Negro (in-place)
         toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
-        devResultIn_d_out = false;
         break;
 
-    case 6: // Invertir colores => in-place
+    case 6: // Invertir colores (in-place)
         invertColorsKernel << <gridDim, blockDim >> > (d_in, width, height);
-        devResultIn_d_out = false;
         break;
 
-    case 31: // Pixelar en color => out-of-place
+    case 31: // Pixelar color
     {
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
         /*int radius = tamFiltro / 2;
         int tileW = blockDim.x + 2 * radius;
         int tileH = blockDim.y + 2 * radius;*/
@@ -439,46 +202,16 @@ int procImg(Pixel* pixels, int height, int width,
         int nThreads = blockDim.x * blockDim.y;
 
         // Tamaño para los pixeles
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-        // Recalcular blockDim segun filterDiv para pixelado
-        int newBx = bCandidate / filterDiv;
-        int newBy = bCandidate / filterDiv;
-        if (newBx < 1) newBx = 1;
-        if (newBy < 1) newBy = 1;
-        blockDim.x = newBx;
-        blockDim.y = newBy;
-        gridX = (width + newBx - 1) / newBx;
-        gridY = (height + newBy - 1) / newBy;
-        gridDim.x = gridX;
-        gridDim.y = gridY;
-        // Calcular memoria compartida necesaria
-        int nThreads = newBx * newBy;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
         size_t sizeData = nThreads * sizeof(Pixel);
+
+        // Tamaño para R, G, B, Count (4 int arrays)
         size_t sizeR = nThreads * sizeof(int);
         size_t sizeG = nThreads * sizeof(int);
         size_t sizeB = nThreads * sizeof(int);
         size_t sizeCount = nThreads * sizeof(int);
+
+        // Total
         size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 
 
         if (totalNeeded > prop.sharedMemPerBlock) {
@@ -489,75 +222,27 @@ int procImg(Pixel* pixels, int height, int width,
         }
 
         pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height, tamFiltro);
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
->>>>>>> Stashed changes
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
->>>>>>> Stashed changes
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
->>>>>>> Stashed changes
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
->>>>>>> Stashed changes
     }
     break;
 
-    case 32: // Pixelar BN => primero BN in-place, luego pixelado out-of-place
+    case 32: // Pixelar BN (1) BN in-place, (2) pixelar out-of-place
     {
         toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
         cudaDeviceSynchronize();
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 
         int nThreads = blockDim.x * blockDim.y;
 
         // Tamaño para los pixeles
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-        int newBx = bCandidate / filterDiv;
-        int newBy = bCandidate / filterDiv;
-        if (newBx < 1) newBx = 1;
-        if (newBy < 1) newBy = 1;
-        blockDim.x = newBx;
-        blockDim.y = newBy;
-        gridX = (width + newBx - 1) / newBx;
-        gridY = (height + newBy - 1) / newBy;
-        gridDim.x = gridX;
-        gridDim.y = gridY;
-        int nThreads = newBx * newBy;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
         size_t sizeData = nThreads * sizeof(Pixel);
+
+        // Tamaño para R, G, B, Count (4 int arrays)
         size_t sizeR = nThreads * sizeof(int);
         size_t sizeG = nThreads * sizeof(int);
         size_t sizeB = nThreads * sizeof(int);
         size_t sizeCount = nThreads * sizeof(int);
+
+        // Total
         size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
 
         if (totalNeeded > prop.sharedMemPerBlock) {
             fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, solo hay %zu.\n",
@@ -570,86 +255,6 @@ int procImg(Pixel* pixels, int height, int width,
     }
     break;
 
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
-    }
-    break;
-
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
-    }
-    break;
-
->>>>>>> Stashed changes
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
-    }
-    break;
-
->>>>>>> Stashed changes
-=======
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
-        devResultIn_d_out = true;
-    }
-    break;
-
->>>>>>> Stashed changes
-    case 41: // Identificar Rojo => out-of-place
-    {
-        // Obtener dirección del símbolo de constantes
-        const int* pRed = nullptr;
-        cudaStatus = cudaGetSymbolAddress((void**)&pRed, c_threshRed);
-        if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaGetSymbolAddress (c_threshRed) failed: %s\n", cudaGetErrorString(cudaStatus));
-            cudaFree(d_in); cudaFree(d_out);
-            return 1;
-        }
-        identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pRed, d_count);
-        devResultIn_d_out = true;
-    }
-    break;
-
-    case 42: // Identificar Verde => out-of-place
-    {
-        const int* pGreen = nullptr;
-        cudaStatus = cudaGetSymbolAddress((void**)&pGreen, c_threshGreen);
-        if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaGetSymbolAddress (c_threshGreen) failed: %s\n", cudaGetErrorString(cudaStatus));
-            cudaFree(d_in); cudaFree(d_out);
-            return 1;
-        }
-        identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pGreen, d_count);
-        devResultIn_d_out = true;
-    }
-    break;
-
-    case 43: // Identificar Azul => out-of-place
-    {
-        const int* pBlue = nullptr;
-        cudaStatus = cudaGetSymbolAddress((void**)&pBlue, c_threshBlue);
-        if (cudaStatus != cudaSuccess) {
-            fprintf(stderr, "cudaGetSymbolAddress (c_threshBlue) failed: %s\n", cudaGetErrorString(cudaStatus));
-            cudaFree(d_in); cudaFree(d_out);
-            return 1;
-        }
-        identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pBlue, d_count);
-        devResultIn_d_out = true;
-    }
-    break;
-
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
     default:
         fprintf(stderr, "Opcion %d no reconocida.\n", option);
         cudaFree(d_in);
@@ -657,7 +262,7 @@ int procImg(Pixel* pixels, int height, int width,
         return 1;
     }
 
-    // 9) Verificar errores de lanzamiento
+    // Verificar si hubo error lanzando el kernel
     cudaStatus = cudaGetLastError();
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "Kernel launch failed: %s\n", cudaGetErrorString(cudaStatus));
@@ -673,54 +278,23 @@ int procImg(Pixel* pixels, int height, int width,
         return 1;
     }
 
-    // 10) Copiar el resultado de vuelta a "pixels"
-    //     - BN e Invertir => in-place => d_in
-    //     - Pixelar / Identificar color => out-of-place => d_out
-    Pixel* d_result = devResultIn_d_out ? d_out : d_in;
+    // 8) Copiar el resultado de vuelta
+    bool usedPixelate = (option == 31 || option == 32);
+    Pixel* d_result = usedPixelate ? d_out : d_in;
     cudaStatus = cudaMemcpy(pixels, d_result, totalPixels * sizeof(Pixel), cudaMemcpyDeviceToHost);
     if (cudaStatus != cudaSuccess) {
         fprintf(stderr, "cudaMemcpy D->H failed!\n");
-        cudaFree(d_in); cudaFree(d_out);
+        cudaFree(d_in);
+        cudaFree(d_out);
         return 1;
     }
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
 
-    // 11) Si es Identificar colores (41,42,43), leer el contador
-    if (option == 41 || option == 42 || option == 43) {
-        unsigned int hCount = 0;
-        cudaMemcpy(&hCount, d_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
-        if (outCount) *outCount = hCount;
-        cudaFree(d_count);
-    }
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
-
-    // 12) Liberar
+    // 9) Liberar
     cudaFree(d_in);
     cudaFree(d_out);
 
-    // 13) (Opcional) reset.
-    //     Si tu main va a llamar procImg varias veces, es aconsejable
-    //     comentar esta línea para no perder el contexto:
-    // cudaDeviceReset();
+    // 10) (Opcional) reset
+    cudaDeviceReset();
 
-    return 0; // éxito
+    return 0; // exito
 }
