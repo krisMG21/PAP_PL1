@@ -5,6 +5,22 @@
 #include <cmath>
 #include "procImg.h" // Donde se declara Pixel y la funcion procImg(...)
 
+// Memoria de constantes para los umbrales de color
+// Cada color (rojo, verde, azul) tendrá 6 enteros [Rmin,Rmax, Gmin,Gmax, Bmin,Bmax]
+__constant__ int c_threshRed[6];
+__constant__ int c_threshGreen[6];
+__constant__ int c_threshBlue[6];
+
+// Funciones para copiar umbrales desde host a device (const memory)
+cudaError_t setRedThresholds(const int hostThresh[6]) {
+    return cudaMemcpyToSymbol(c_threshRed, hostThresh, 6 * sizeof(int));
+}
+cudaError_t setGreenThresholds(const int hostThresh[6]) {
+    return cudaMemcpyToSymbol(c_threshGreen, hostThresh, 6 * sizeof(int));
+}
+cudaError_t setBlueThresholds(const int hostThresh[6]) {
+    return cudaMemcpyToSymbol(c_threshBlue, hostThresh, 6 * sizeof(int));
+}
 
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -46,11 +62,8 @@ __global__ void invertColorsKernel(Pixel* d_pixels, int width, int height)
     }
 }
 
-// Kernel: Pixelado con filtro cuadrado de tamFiltro x tamFiltro
-// Cada hilo copia no solo su pixel central, sino tambien parte del halo.
 // Sin padding artificial: si la ventana se sale de [0..width-1], [0..height-1], no aporta nada (no se suma).
-__global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
-    int width, int height, int tamFiltro)
+__global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,int width, int height)
 {
     // Coordenadas globales del píxel
     int gx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -115,13 +128,55 @@ __global__ void pixelateKernel(const Pixel* d_in, Pixel* d_out,
         d_out[gy * width + gx] = sData[0];
     }
 }
-// para la carga completa del halo.
-int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
+
+////////////////////////////////////////////////////////////////////////////////
+// Identificación de colores: un kernel por cada color
+// Para simplificar: crearemos un kernel "identifyColorKernel" parametrizable
+// con punteros a umbrales en __constant__ y un atomicAdd() en un contador global
+////////////////////////////////////////////////////////////////////////////////
+__device__ bool checkColor(const Pixel& px, const int thr[6])
+{
+    // thr: [Rmin,Rmax, Gmin,Gmax, Bmin,Bmax]
+    if (px.r < thr[0] || px.r > thr[1]) return false;
+    if (px.g < thr[2] || px.g > thr[3]) return false;
+    if (px.b < thr[4] || px.b > thr[5]) return false;
+    return true;
+}
+
+__global__ void identifyKernel(const Pixel* d_in, Pixel* d_out,int width, int height,const int* thrColor,unsigned int* d_countColor)
+{
+    int x = blockIdx.x * blockDim.x + threadIdx.x;
+    int y = blockIdx.y * blockDim.y + threadIdx.y;
+    if (x < width && y < height) {
+        int idx = y * width + x;
+        Pixel p = d_in[idx];
+
+        bool isColor = checkColor(p, thrColor);
+        if (isColor) {
+            // Mantener color
+            d_out[idx] = p;
+            // Atomically incrementar contador
+            atomicAdd(d_countColor, 1u);
+        }
+        else {
+            // Pintar en blanco
+            d_out[idx] = { 255,255,255 };
+        }
+    }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Función principal para procesar la imagen
+////////////////////////////////////////////////////////////////////////////////
+int procImg(Pixel* pixels, int height, int width, int option, int filterDiv, unsigned int* outCount)
 {
     cudaError_t cudaStatus;
     Pixel* d_in = nullptr;
     Pixel* d_out = nullptr;
     int totalPixels = width * height;
+
+    // outCount: si no es nullptr, ahí guardamos el numero de pixeles de cada color
+    if (outCount) *outCount = 0; // inicial
 
     // 1) Info de la GPU
     int devID = 0;
@@ -149,7 +204,7 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
     printf("Compute Capability: %d.%d\n", prop.major, prop.minor);
     printf("MaxThreadsPerBlock: %d, blockDim=(%d,%d), gridDim=(%d,%d)\n",
         maxThreads, blockDim.x, blockDim.y, gridDim.x, gridDim.y);
-    printf("tamFiltro = %d\n", tamFiltro);
+    printf("filterDiv = %d\n", filterDiv);
     printf("================\n");
 
     // 4) Seleccionar device
@@ -171,6 +226,7 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         cudaFree(d_in);
         return 1;
     }
+    
 
     // 6) Copiar la imagen host->device
     cudaStatus = cudaMemcpy(d_in, pixels, totalPixels * sizeof(Pixel), cudaMemcpyHostToDevice);
@@ -181,7 +237,14 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         return 1;
     }
 
-    // 7) Segun la opcion
+	// 7) Ajuste adicionales y lanzar el kernel adecuado segun la opcion
+    // Si necesitamos contadores
+    unsigned int* d_count = nullptr;
+    if (option == 41 || option == 42 || option == 43) {
+        cudaMalloc((void**)&d_count, sizeof(unsigned int));
+        unsigned int zero = 0;
+        cudaMemcpy(d_count, &zero, sizeof(unsigned int), cudaMemcpyHostToDevice);
+    }
     switch (option) {
     case 1: // Blanco y Negro (in-place)
         toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
@@ -198,6 +261,16 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         int tileH = blockDim.y + 2 * radius;*/
         /*size_t needed = tileW * tileH * sizeof(Pixel);
         size_t needed = blockSize.x * blockSize.y * (sizeof(Pixel) + 4 * sizeof(int));*/
+        // Recalcular tamaño de candidatos dividiendo entre el filtro de division
+        blockDim.x= int(bCandidate/filterDiv);
+        blockDim.y = int(bCandidate/filterDiv);
+
+        // Recalcular grid
+        gridX = (width + blockDim.x - 1) / blockDim.x;
+        gridY = (height + blockDim.y - 1) / blockDim.y;
+        gridDim.x = gridX;
+        gridDim.y = gridY;
+
         // Calcular la memoria compartida necesaria para pixelateKernel
         int nThreads = blockDim.x * blockDim.y;
 
@@ -214,14 +287,9 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
 
 
-        if (totalNeeded > prop.sharedMemPerBlock) {
-            fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, pero solo hay %zu.\n",
-                tamFiltro, totalNeeded, (size_t)prop.sharedMemPerBlock);
-            cudaFree(d_in); cudaFree(d_out);
-            return 1;
-        }
+        
 
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height, tamFiltro);
+        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
     }
     break;
 
@@ -229,7 +297,15 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
     {
         toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
         cudaDeviceSynchronize();
+        // Recalcular tamaño de candidatos dividiendo entre el filtro de division
+        blockDim.x= int(bCandidate/filterDiv);
+        blockDim.y = int(bCandidate/filterDiv);
 
+        // Recalcular grid
+        gridX = (width + blockDim.x - 1) / blockDim.x;
+        gridY = (height + blockDim.y - 1) / blockDim.y;
+        gridDim.x = gridX;
+        gridDim.y = gridY;
         int nThreads = blockDim.x * blockDim.y;
 
         // Tamaño para los pixeles
@@ -244,17 +320,21 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         // Total
         size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
 
-        if (totalNeeded > prop.sharedMemPerBlock) {
-            fprintf(stderr, "Error: tamFiltro=%d => %zu bytes en shared, solo hay %zu.\n",
-                tamFiltro, totalNeeded, (size_t)prop.sharedMemPerBlock);
-            cudaFree(d_in); cudaFree(d_out);
-            return 1;
-        }
-
-        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height, tamFiltro);
+        pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
     }
     break;
-
+    case 41:
+        // Identificar rojo
+        identifyKernel << <gridDim, blockDim >> > (d_in, d_out,width, height,c_threshRed,d_count);
+        break;
+    case 42:
+        // Identificar verde
+        identifyKernel << <gridDim, blockDim >> > (d_in, d_out,width, height,c_threshGreen,d_count);
+        break;
+    case 43:
+        // Identificar azul
+        identifyKernel << <gridDim, blockDim >> > (d_in, d_out,width, height,c_threshBlue,d_count);
+        break;
     default:
         fprintf(stderr, "Opcion %d no reconocida.\n", option);
         cudaFree(d_in);
@@ -287,6 +367,21 @@ int procImg(Pixel* pixels, int height, int width, int option, int tamFiltro)
         cudaFree(d_in);
         cudaFree(d_out);
         return 1;
+    }
+    // Copiar resultado de los colores
+    if (option == 41 || option == 42 || option == 43) {
+        // color => d_out
+        cudaMemcpy(pixels, d_out, totalPixels * sizeof(Pixel), cudaMemcpyDeviceToHost);
+        // Leer el contador
+        unsigned int hCount = 0;
+        cudaMemcpy(&hCount, d_count, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+        if (outCount) *outCount = hCount;
+
+        cudaFree(d_count);
+    }
+    else {
+        // BN, invert => d_in
+        cudaMemcpy(pixels, d_in, totalPixels * sizeof(Pixel), cudaMemcpyDeviceToHost);
     }
 
     // 9) Liberar
