@@ -2,7 +2,7 @@
 #include <string.h>
 #include <iostream>
 #include <vector>
-#include "procImg.h" 
+#include "procImg.h"  // Donde declaras: int procImg(Pixel*,int,int,int,int,unsigned int*);
 
 #include <fstream>
 #include <cstdint>
@@ -133,7 +133,6 @@ void pixelArrayToBMP(BMPImage_t* bmp, const std::vector<Pixel>& in) {
     }
 }
 
-// MAIN
 int main() {
     // Pedimos al usuario la ruta de la imagen (con valor por defecto)
     char ruta[256];
@@ -170,7 +169,7 @@ int main() {
     printf("Opciones \n \
         (1) Conversion a Blanco y Negro \n \
         (2) Pixelar \n \
-        (3) Identificar colores \n \
+        (3) Identificar colores (rojo,verde,azul) \n \
         (4) Filtro y delineado \n \
         (5) Calculo de pseudo-hash \n \
         (6) Invertir colores \n \
@@ -180,33 +179,38 @@ int main() {
     int option;
     scanf("%d", &option);
 
-    int finalOption = option;
-    int tamFiltro = 5;          // valor por defecto, se pedira si es pixelar
+    // Valor por defecto "filterDiv" = 1
+    // (si pixelar -> se pide tamFiltro, etc.)
+    int filterDiv = 1;
     const char* outName = nullptr;
 
     switch (option) {
     case 1:
         // BN
-        procImg(pixels.data(), height, width, 1, tamFiltro);
+        procImg(pixels.data(), height, width, 1, filterDiv, nullptr);
         outName = "out_gray.bmp";
         break;
 
     case 2:
     {
         // Submenu pixelar
-        printf("Has elegido pixelar. Introduce tamFiltro (entero > 1): ");
-        scanf("%d", &tamFiltro);
-        printf("Pixelar en:\n (1) Color \n (2) Blanco y Negro\n");
+        // (Lo que ya tenias: se llama (31) Pixelar color, o (32) Pixelar BN)
+        printf("Has elegido pixelar: \n (1) Color \n (2) Blanco y Negro\n");
         int subSel;
         scanf("%d", &subSel);
         if (subSel == 1) {
             // Pixelar color => finalOption=31
-            finalOption = 31;
+            // Pides filterDiv o tamFiltro:
+            printf("Introduce factor de division del blockDim: ");
+            scanf("%d", &filterDiv);
+            procImg(pixels.data(), height, width, 31, filterDiv, nullptr);
             outName = "out_pixel_color.bmp";
         }
         else if (subSel == 2) {
             // Pixelar BN => finalOption=32
-            finalOption = 32;
+            printf("Introduce factor de division del blockDim: ");
+            scanf("%d", &filterDiv);
+            procImg(pixels.data(), height, width, 32, filterDiv, nullptr);
             outName = "out_pixel_bn.bmp";
         }
         else {
@@ -214,16 +218,58 @@ int main() {
             DestroyBMP(bmp);
             return 0;
         }
-        // Llamamos a procImg con la finalOption calculada
-        procImg(pixels.data(), height, width, finalOption, tamFiltro);
     }
     break;
 
     case 3:
-        printf("Opcion 3: Identificar colores (no implementado).\n");
-        // De momento no hacemos nada. 
-        outName = "out_identificar_colores.bmp"; // por ejemplo
-        break;
+    {
+        // Identificar colores => Llamamos 3 veces
+        // 1) Fijar umbrales (o pedirlos al usuario)
+        // EJEMPLO de umbrales
+        int hostRed[6] = { 100,255,   0,150,   0,150 };
+        int hostGreen[6] = { 30,150,    50,255,  0,75 };
+        int hostBlue[6] = { 0,200,     0,249,   100,255 };
+
+        setRedThresholds(hostRed);
+        setGreenThresholds(hostGreen);
+        setBlueThresholds(hostBlue);
+
+        // a) Identificar ROJO => opcion=41
+        unsigned int countR = 0;
+        procImg(pixels.data(), height, width, 41, 0, &countR);
+        // Guardar out_red.bmp
+        pixelArrayToBMP(bmp, pixels);
+        SaveBMP(bmp, "out_red.bmp");
+        printf("Num pixeles rojos = %u\n", countR);
+
+        // Recargar la imagen original para no partir de la imagen ya modificada
+        DestroyBMP(bmp);
+        bmp = ReadBMP(ruta);
+        pixels = bmpToPixelArray(bmp);
+
+        // b) Identificar VERDE => opcion=42
+        unsigned int countG = 0;
+        procImg(pixels.data(), height, width, 42, 0, &countG);
+        pixelArrayToBMP(bmp, pixels);
+        SaveBMP(bmp, "out_green.bmp");
+        printf("Num pixeles verdes = %u\n", countG);
+
+        DestroyBMP(bmp);
+        bmp = ReadBMP(ruta);
+        pixels = bmpToPixelArray(bmp);
+
+        // c) Identificar AZUL => opcion=43
+        unsigned int countB = 0;
+        procImg(pixels.data(), height, width, 43, 0, &countB);
+        pixelArrayToBMP(bmp, pixels);
+        SaveBMP(bmp, "out_blue.bmp");
+        printf("Num pixeles azules = %u\n", countB);
+
+        // Salimos
+        DestroyBMP(bmp);
+        return 0;
+    }
+    break;
 
     case 4:
         printf("Opcion 4: Filtro y delineado (no implementado).\n");
@@ -237,7 +283,7 @@ int main() {
 
     case 6:
         // Invertir colores
-        procImg(pixels.data(), height, width, 6, tamFiltro);
+        procImg(pixels.data(), height, width, 6, filterDiv, nullptr);
         outName = "out_inverted.bmp";
         break;
 
@@ -247,7 +293,7 @@ int main() {
         return 0;
     }
 
-    // Si no se ha asignado outName aun, ponemos un nombre generico
+    // Si la opcion no era 3 (que sale antes), llegamos aquí
     if (!outName) {
         outName = "out_result.bmp";
     }
