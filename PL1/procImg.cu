@@ -12,6 +12,7 @@
 __constant__ int c_threshRed[6];
 __constant__ int c_threshGreen[6];
 __constant__ int c_threshBlue[6];
+int* reduction[][];
 
 // -----------------------------------------------------------------------------
 // Funciones para copiar umbrales desde host a device (const memory)
@@ -186,6 +187,37 @@ void setColorThresholds() {
     setRedThresholds(hostRed);
     setGreenThresholds(hostGreen);
     setBlueThresholds(hostBlue);
+}
+
+__global__ void weightedSumKernel(Pixel* d_in, float* d_partialMax, int width, int height) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx < width * height) {
+        float weightedSum = d_in[idx].r * 0.50f + d_in[idx].g * 0.25f + d_in[idx].b * 0.25f;
+        d_partialMax[idx] = weightedSum;
+    }
+}
+
+__global__ void hashKernel(float* d_in, float* d_out, int n) {
+    extern __shared__ float sharedMax[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+
+    sharedMax[tid] = (idx < n) ? d_in[idx] : -FLT_MAX;
+    if (idx + blockDim.x < n) {
+        sharedMax[tid] = fmaxf(sharedMax[tid], d_in[idx + blockDim.x]);
+    }
+    __syncthreads();
+
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sharedMax[tid] = fmaxf(sharedMax[tid], sharedMax[tid + s]);
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        d_out[blockIdx.x] = sharedMax[0];
+    }
 }
 
 // -----------------------------------------------------------------------------
