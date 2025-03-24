@@ -2,7 +2,7 @@
 #include <string.h>
 #include <iostream>
 #include <vector>
-#include "procImg.h"  // Donde declaras: int procImg(Pixel*,int,int,int,int,unsigned int*);
+#include "procImg.h"
 
 #include <fstream>
 #include <cstdint>
@@ -225,7 +225,6 @@ int main() {
     {
         // Identificar colores => Llamamos 3 veces
         // 1) Fijar umbrales (o pedirlos al usuario)
-        // EJEMPLO de umbrales
         int hostRed[6] = { 100,255,   0,150,   0,150 };
         int hostGreen[6] = { 30,150,    50,255,  0,75 };
         int hostBlue[6] = { 0,200,     0,249,   100,255 };
@@ -293,7 +292,7 @@ int main() {
         return 0;
     }
 
-    // Si la opcion no era 3 (que sale antes), llegamos aquí
+    // Si la opcion no era 3 (que sale antes)
     if (!outName) {
         outName = "out_result.bmp";
     }
