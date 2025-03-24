@@ -177,6 +177,16 @@ __global__ void identifyKernel(const Pixel* d_in, Pixel* d_out,
         }
     }
 }
+void setColorThresholds() {
+    // Identificar colores => Llamamos 3 veces
+    // 1) Fijar umbrales (o pedirlos al usuario)
+    int hostRed[6] = { 100,255,   0,150,   0,150 };
+    int hostGreen[6] = { 30,150,    50,255,  0,75 };
+    int hostBlue[6] = { 0,200,     0,249,   100,255 };
+    setRedThresholds(hostRed);
+    setGreenThresholds(hostGreen);
+    setBlueThresholds(hostBlue);
+}
 
 // -----------------------------------------------------------------------------
 // Función principal para procesar la imagen
@@ -292,7 +302,7 @@ int procImg(Pixel* pixels, int height, int width,
         devResultIn_d_out = false;
         break;
 
-    case 31: // Pixelar en color => out-of-place
+    case 21: // Pixelar en color => out-of-place
     {
         // Recalcular blockDim segun filterDiv para pixelado
         int newBx = bCandidate / filterDiv;
@@ -318,7 +328,7 @@ int procImg(Pixel* pixels, int height, int width,
     }
     break;
 
-    case 32: // Pixelar BN => primero BN in-place, luego pixelado out-of-place
+    case 22: // Pixelar BN => primero BN in-place, luego pixelado out-of-place
     {
         toGrayKernel<<<gridDim, blockDim>>>(d_in, width, height);
         cudaDeviceSynchronize();
@@ -344,8 +354,9 @@ int procImg(Pixel* pixels, int height, int width,
     }
     break;
 
-    case 41: // Identificar Rojo => out-of-place
+    case 31: // Identificar Rojo => out-of-place
     {
+		setColorThresholds();
         // Obtener dirección del símbolo de constantes
         const int* pRed = nullptr;
         cudaStatus = cudaGetSymbolAddress((void**)&pRed, c_threshRed);
@@ -359,8 +370,9 @@ int procImg(Pixel* pixels, int height, int width,
     }
     break;
 
-    case 42: // Identificar Verde => out-of-place
+    case 32: // Identificar Verde => out-of-place
     {
+		setColorThresholds();
         const int* pGreen = nullptr;
         cudaStatus = cudaGetSymbolAddress((void**)&pGreen, c_threshGreen);
         if (cudaStatus != cudaSuccess) {
@@ -373,8 +385,9 @@ int procImg(Pixel* pixels, int height, int width,
     }
     break;
 
-    case 43: // Identificar Azul => out-of-place
+    case 33: // Identificar Azul => out-of-place
     {
+        setColorThresholds();
         const int* pBlue = nullptr;
         cudaStatus = cudaGetSymbolAddress((void**)&pBlue, c_threshBlue);
         if (cudaStatus != cudaSuccess) {

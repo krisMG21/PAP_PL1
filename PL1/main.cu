@@ -194,23 +194,23 @@ int main() {
     case 2:
     {
         // Submenu pixelar
-        // (Lo que ya tenias: se llama (31) Pixelar color, o (32) Pixelar BN)
+        // (Lo que ya tenias: se llama (21) Pixelar color, o (22) Pixelar BN)
         printf("Has elegido pixelar: \n (1) Color \n (2) Blanco y Negro\n");
         int subSel;
         scanf("%d", &subSel);
         if (subSel == 1) {
-            // Pixelar color => finalOption=31
+            // Pixelar color => finalOption=21
             // Pides filterDiv o tamFiltro:
             printf("Introduce factor de division del blockDim: ");
             scanf("%d", &filterDiv);
-            procImg(pixels.data(), height, width, 31, filterDiv, nullptr);
+            procImg(pixels.data(), height, width, 21, filterDiv, nullptr);
             outName = "out_pixel_color.bmp";
         }
         else if (subSel == 2) {
-            // Pixelar BN => finalOption=32
+            // Pixelar BN => finalOption=22
             printf("Introduce factor de division del blockDim: ");
             scanf("%d", &filterDiv);
-            procImg(pixels.data(), height, width, 32, filterDiv, nullptr);
+            procImg(pixels.data(), height, width, 22, filterDiv, nullptr);
             outName = "out_pixel_bn.bmp";
         }
         else {
@@ -223,19 +223,9 @@ int main() {
 
     case 3:
     {
-        // Identificar colores => Llamamos 3 veces
-        // 1) Fijar umbrales (o pedirlos al usuario)
-        int hostRed[6] = { 100,255,   0,150,   0,150 };
-        int hostGreen[6] = { 30,150,    50,255,  0,75 };
-        int hostBlue[6] = { 0,200,     0,249,   100,255 };
-
-        setRedThresholds(hostRed);
-        setGreenThresholds(hostGreen);
-        setBlueThresholds(hostBlue);
-
-        // a) Identificar ROJO => opcion=41
+        // a) Identificar ROJO => opcion=31
         unsigned int countR = 0;
-        procImg(pixels.data(), height, width, 41, 0, &countR);
+        procImg(pixels.data(), height, width, 31, 0, &countR);
         // Guardar out_red.bmp
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_red.bmp");
@@ -246,9 +236,9 @@ int main() {
         bmp = ReadBMP(ruta);
         pixels = bmpToPixelArray(bmp);
 
-        // b) Identificar VERDE => opcion=42
+        // b) Identificar VERDE => opcion=32
         unsigned int countG = 0;
-        procImg(pixels.data(), height, width, 42, 0, &countG);
+        procImg(pixels.data(), height, width, 32, 0, &countG);
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_green.bmp");
         printf("Num pixeles verdes = %u\n", countG);
@@ -257,9 +247,9 @@ int main() {
         bmp = ReadBMP(ruta);
         pixels = bmpToPixelArray(bmp);
 
-        // c) Identificar AZUL => opcion=43
+        // c) Identificar AZUL => opcion=33
         unsigned int countB = 0;
-        procImg(pixels.data(), height, width, 43, 0, &countB);
+        procImg(pixels.data(), height, width, 33, 0, &countB);
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_blue.bmp");
         printf("Num pixeles azules = %u\n", countB);
