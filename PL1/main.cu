@@ -52,8 +52,7 @@ static int getPosition(const BMPHeader_t* header, int x, int y) {
     return j + i;
 }
 static int CheckHeader(const BMPHeader_t* header) {
-    return header->type == MAGIC_VALUE
-        && header->bits_per_pixel == BITS_PER_PIXEL;
+    return header->type == MAGIC_VALUE && header->bits_per_pixel == BITS_PER_PIXEL;
 }
 
 // Leer BMP
@@ -103,7 +102,6 @@ std::vector<Pixel> bmpToPixelArray(const BMPImage_t* bmp) {
     int height = bmp->header.height_px;
     std::vector<Pixel> out;
     out.reserve(width * height);
-
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             int pos = getPosition(&bmp->header, x, y);
@@ -121,7 +119,6 @@ std::vector<Pixel> bmpToPixelArray(const BMPImage_t* bmp) {
 void pixelArrayToBMP(BMPImage_t* bmp, const std::vector<Pixel>& in) {
     int width = bmp->header.width_px;
     int height = bmp->header.height_px;
-
     for (int y = 0; y < height; y++) {
         for (int x = 0; x < width; x++) {
             int pos = getPosition(&bmp->header, x, y);
@@ -134,26 +131,20 @@ void pixelArrayToBMP(BMPImage_t* bmp, const std::vector<Pixel>& in) {
 }
 
 int main() {
-    // Pedimos al usuario la ruta de la imagen (con valor por defecto)
+    // Pedir al usuario la ruta de la imagen (valor por defecto)
     char ruta[256];
     memset(ruta, 0, sizeof(ruta));
-    const char* defaultFile = "test.bmp";  // Nombre por defecto
-
+    const char* defaultFile = "test.bmp";
     printf("Introduzca la ruta de la imagen BMP (Intro para usar '%s'): ", defaultFile);
     if (fgets(ruta, sizeof(ruta), stdin) == nullptr) {
-        // Si ocurre algun error al leer, usamos la ruta por defecto
         strcpy(ruta, defaultFile);
     }
     else {
-        // Eliminar el salto de linea
         size_t len = strlen(ruta);
-        if (len > 0 && ruta[len - 1] == '\n') {
+        if (len > 0 && ruta[len - 1] == '\n')
             ruta[len - 1] = '\0';
-        }
-        if (strlen(ruta) == 0) {
-            // Si el usuario no tecleo nada (intro directo), usamos la ruta por defecto
+        if (strlen(ruta) == 0)
             strcpy(ruta, defaultFile);
-        }
     }
 
     printf("Leyendo archivo: '%s'\n", ruta);
@@ -165,52 +156,41 @@ int main() {
     // Convertir a array lineal de Pixel
     std::vector<Pixel> pixels = bmpToPixelArray(bmp);
 
-    // Mostrar menu
-    printf("Opciones \n \
-        (1) Conversion a Blanco y Negro \n \
-        (2) Pixelar \n \
-        (3) Identificar colores (rojo,verde,azul) \n \
-        (4) Filtro y delineado \n \
-        (5) Calculo de pseudo-hash \n \
-        (6) Invertir colores \n \
-        (X) Salir\n");
+    // Mostrar menú
+    printf("Opciones\n"
+        "  (1) Conversion a Blanco y Negro\n"
+        "  (2) Pixelar\n"
+        "  (3) Identificar colores (sin halo)\n"
+        "  (4) Filtro y delineado de zonas de color\n"
+        "  (5) Calculo de pseudo-hash\n"
+        "  (6) Invertir colores\n"
+        "  (X) Salir\n");
     printf("Elija opcion: ");
 
     int option;
     scanf("%d", &option);
 
-    // Valor por defecto "filterDiv" = 1
-    // (si pixelar -> se pide tamFiltro, etc.)
     int filterDiv = 1;
     const char* outName = nullptr;
 
     switch (option) {
     case 1:
-        // BN
-        procImg(pixels.data(), height, width, 1, filterDiv, nullptr);
+        procImg(pixels.data(), height, width, 1, filterDiv, nullptr, 0);
         outName = "out_gray.bmp";
         break;
 
-    case 2:
-    {
-        // Submenu pixelar
-        // (Lo que ya tenias: se llama (21) Pixelar color, o (22) Pixelar BN)
+    case 2: {
         printf("Has elegido pixelar: \n (1) Color \n (2) Blanco y Negro\n");
         int subSel;
         scanf("%d", &subSel);
+        printf("Introduce factor de division del blockDim: ");
+        scanf("%d", &filterDiv);
         if (subSel == 1) {
-            // Pixelar color => finalOption=21
-            // Pides filterDiv o tamFiltro:
-            printf("Introduce factor de division del blockDim: ");
-            scanf("%d", &filterDiv);
-            procImg(pixels.data(), height, width, 21, filterDiv, nullptr);
+            procImg(pixels.data(), height, width, 21, filterDiv, nullptr, 0);
             outName = "out_pixel_color.bmp";
         }
         else if (subSel == 2) {
-            // Pixelar BN => finalOption=22
-            printf("Introduce factor de division del blockDim: ");
-            scanf("%d", &filterDiv);
-            procImg(pixels.data(), height, width, 22, filterDiv, nullptr);
+            procImg(pixels.data(), height, width, 22, filterDiv, nullptr, 0);
             outName = "out_pixel_bn.bmp";
         }
         else {
@@ -219,26 +199,22 @@ int main() {
             return 0;
         }
     }
-    break;
+          break;
 
-    case 3:
-    {
-        // a) Identificar ROJO => opcion=31
+    case 3: {
+        // Identificación sin halo
         unsigned int countR = 0;
-        procImg(pixels.data(), height, width, 31, 0, &countR);
-        // Guardar out_red.bmp
+        procImg(pixels.data(), height, width, 31, 0, &countR, 0);
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_red.bmp");
         printf("Num pixeles rojos = %u\n", countR);
 
-        // Recargar la imagen original para no partir de la imagen ya modificada
         DestroyBMP(bmp);
         bmp = ReadBMP(ruta);
         pixels = bmpToPixelArray(bmp);
 
-        // b) Identificar VERDE => opcion=32
         unsigned int countG = 0;
-        procImg(pixels.data(), height, width, 32, 0, &countG);
+        procImg(pixels.data(), height, width, 32, 0, &countG, 0);
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_green.bmp");
         printf("Num pixeles verdes = %u\n", countG);
@@ -247,23 +223,43 @@ int main() {
         bmp = ReadBMP(ruta);
         pixels = bmpToPixelArray(bmp);
 
-        // c) Identificar AZUL => opcion=33
         unsigned int countB = 0;
-        procImg(pixels.data(), height, width, 33, 0, &countB);
+        procImg(pixels.data(), height, width, 33, 0, &countB, 0);
         pixelArrayToBMP(bmp, pixels);
         SaveBMP(bmp, "out_blue.bmp");
         printf("Num pixeles azules = %u\n", countB);
 
-        // Salimos
         DestroyBMP(bmp);
         return 0;
     }
-    break;
+          break;
 
-    case 4:
-        printf("Opcion 4: Filtro y delineado (no implementado).\n");
+    case 4: {
+        // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 según el color
+        printf("Has elegido filtro y delineado.\n");
+        printf("Elija el color a delinear:\n (1) Rojo\n (2) Verde\n (3) Azul\n");
+        int colorChoice;
+        scanf("%d", &colorChoice);
+        int optDelineado;
+        if (colorChoice == 1)
+            optDelineado = 41;
+        else if (colorChoice == 2)
+            optDelineado = 42;
+        else if (colorChoice == 3)
+            optDelineado = 43;
+        else {
+            printf("Color no valido. Saliendo...\n");
+            DestroyBMP(bmp);
+            return 0;
+        }
+        printf("Introduzca el tamaño del halo: ");
+        int haloSize;
+        scanf("%d", &haloSize);
+        // Llamada a procImg para la fase 04: se pasa haloSize; filterDiv se puede mantener o pedirse
+        procImg(pixels.data(), height, width, optDelineado, filterDiv, nullptr, haloSize);
         outName = "out_filtro_delineado.bmp";
-        break;
+    }
+          break;
 
     case 5:
         printf("Opcion 5: Calculo de pseudo-hash (no implementado).\n");
@@ -271,8 +267,7 @@ int main() {
         break;
 
     case 6:
-        // Invertir colores
-        procImg(pixels.data(), height, width, 6, filterDiv, nullptr);
+        procImg(pixels.data(), height, width, 6, filterDiv, nullptr, 0);
         outName = "out_inverted.bmp";
         break;
 
@@ -282,19 +277,14 @@ int main() {
         return 0;
     }
 
-    // Si la opcion no era 3 (que sale antes)
     if (!outName) {
         outName = "out_result.bmp";
     }
 
-    // Copiamos el resultado de vuelta al BMP
     pixelArrayToBMP(bmp, pixels);
-
-    // Guardar el resultado
     SaveBMP(bmp, outName);
     printf("Guardado resultado en: %s\n", outName);
 
-    // Liberamos
     DestroyBMP(bmp);
     return 0;
 }

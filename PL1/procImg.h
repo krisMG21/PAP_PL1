@@ -27,12 +27,13 @@ extern "C" {
      *                     - 32: Identificar color verde
      *                     - 33: Identificar color azul
      * @param filterDiv [in]  Factor para redimensionar el blockDim (ej.: si pixelar).
-     * @param outCount  [out] (Opcional) Puntero a variable donde se guardará
+     * @param outCount  [out] Puntero a variable donde se guardará
      *                  el número de píxeles que cumplen la condición (para 31..33).
      *                  Si es NULL, se ignora.
+	 * @param haloSize  [in]  Tamaño del halo para el outline
      * @return          0 si se procesa correctamente; otro valor en caso de error.
      */
-    int procImg(Pixel* pixels, int height, int width, int option, int filterDiv, unsigned int* outCount);
+    int procImg(Pixel* pixels, int height, int width, int option, int filterDiv, unsigned int* outCount, int haloSize);
 
 #ifdef __cplusplus
 }
