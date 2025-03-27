@@ -51,7 +51,7 @@ static int getPosition(const BMPHeader_t* header, int x, int y) {
     int i = x * BYTES_PER_PIXEL;
     return j + i;
 }
-static int CheckHeader(const BMPHeader_t* header) {
+static int checkHeader(const BMPHeader_t* header) {
     return header->type == MAGIC_VALUE &&
         header->bits_per_pixel == BITS_PER_PIXEL;
 }
@@ -65,7 +65,7 @@ BMPImage_t* ReadBMP(const char* filename) {
         exit(EXIT_FAILURE);
     }
     fread(&bmp->header, sizeof(BMPHeader_t), 1, fp);
-    if (!CheckHeader(&bmp->header)) {
+    if (!checkHeader(&bmp->header)) {
         printf("Cabecera BMP no valida.\n");
         exit(EXIT_FAILURE);
     }
@@ -132,6 +132,7 @@ void pixelArrayToBMP(BMPImage_t* bmp, const std::vector<Pixel>& in) {
 }
 
 int main() {
+	// Establecer la ruta de la imagen BMP
     char ruta[256];
     memset(ruta, 0, sizeof(ruta));
     const char* defaultFile = "test.bmp";
@@ -147,14 +148,17 @@ int main() {
             strcpy(ruta, defaultFile);
     }
 
+	// Leer imagen BMP
     printf("Leyendo archivo: '%s'\n", ruta);
     BMPImage_t* bmp = ReadBMP(ruta);
     int width = bmp->header.width_px;
     int height = bmp->header.height_px;
     printf("Imagen de %d x %d pixeles\n", width, height);
 
+	// Convertir a array de píxeles
     std::vector<Pixel> pixels = bmpToPixelArray(bmp);
 
+	// Menú de opciones
     printf("Opciones\n"
         "  (1) Conversion a Blanco y Negro\n"
         "  (2) Pixelar\n"
@@ -171,6 +175,7 @@ int main() {
     int filterDiv = 1;
     const char* outName = nullptr;
 
+	// Procesar imagen según la opción
     switch (option) {
     case 1:
         procImg(pixels.data(), height, width, 1, filterDiv, nullptr, 0);

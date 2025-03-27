@@ -573,32 +573,48 @@ int procImg(Pixel* pixels, int height, int width,int option, int filterDiv, unsi
                break;
 		case 5:{ // Pseudo-hash
             int* d_partialMax = nullptr;
-            int* d_max = nullptr;
+            //int* d_max = nullptr;
 
             int numElements = width * height;
             int threadsPerBlock = 512;
             int blocksForReduction = (numElements + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
             cudaMalloc(&d_partialMax, blocksForReduction * sizeof(int));
             weightedSumKernel << <blocksForReduction, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_in, d_partialMax, numElements);
+
             cudaDeviceSynchronize();
+            printf("\n=== Fase 1: Weighted Sum ===\n");
+            printf("Total pixels: %d\n", numElements);
+            printf("Threads per block: %d\n", threadsPerBlock);
+            printf("Blocks for reduction: %d\n", blocksForReduction);
 
             int curSize = blocksForReduction;
-            bool firstReduction = true;
+			int* d_curInput = d_partialMax;
+			int* d_nextOutput = nullptr;
+            int reductionStage = 1;
+
             while (curSize > 15) {
-                int threads = firstReduction ? 512 : 15;
-                int newBlocks = (curSize + threads * 2 - 1) / (threads * 2);
-                cudaMalloc(&d_max, newBlocks * sizeof(int));
-                hashKernel<<<newBlocks, threads, threads * sizeof(int)>>>(d_partialMax, d_max, curSize);
+                int newThreadsPerBlock = (curSize > 512) ? 512 : 15;
+                int newBlocks = (curSize + newThreadsPerBlock * 2 - 1) / (newThreadsPerBlock * 2);
+                
+                cudaMalloc(&d_nextOutput, newBlocks * sizeof(int));
+                
+                hashKernel<<<newBlocks, newThreadsPerBlock, newThreadsPerBlock * sizeof(int)>>>(d_curInput, d_nextOutput, curSize);
                 cudaDeviceSynchronize();
-                cudaFree(d_partialMax);
-                d_partialMax = d_max;
+
+                printf("\n=== Reduction Stage %d ===\n", reductionStage++);
+                printf("Current Size: %d\n", curSize);
+                printf("New Threads Per Block: %d\n", newThreadsPerBlock);
+                printf("New Blocks: %d\n", newBlocks);
+                
+				if (d_curInput != d_partialMax) cudaFree(d_curInput);
+
+                d_curInput = d_nextOutput;
                 curSize = newBlocks;
-                firstReduction = false;
             }
 
 
-            int h_max[15];
-            cudaMemcpy(h_max, d_partialMax, curSize * sizeof(int), cudaMemcpyDeviceToHost);
+            int h_max[15] = {0};
+            cudaMemcpy(h_max, d_curInput, curSize * sizeof(int), cudaMemcpyDeviceToHost);
 
             printf("Unnormalized values: ");
             for (int i = 0; i < curSize; i++) {
@@ -611,10 +627,17 @@ int procImg(Pixel* pixels, int height, int width,int option, int filterDiv, unsi
                 h_max[i] = normalizeToASCII(h_max[i]);
                 printf("%d ", static_cast<char>(h_max[i]));
             }
-            printf("");
+            printf("\n");
 
-            cudaFree(d_in);
+			printf("Hash String: ");
+			for (int i = 0; i < curSize; i++) {
+				printf("%c", static_cast<char>(h_max[i]));
+			}
+
             cudaFree(d_partialMax);
+			if (d_curInput != d_partialMax) cudaFree(d_curInput);
+            cudaFree(d_in);
+			cudaFree(d_out);
             return 0;
 		}
         default:
