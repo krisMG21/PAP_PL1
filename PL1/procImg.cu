@@ -209,15 +209,30 @@ __global__ void delineateKernel(const Pixel* d_in, Pixel* d_out, int width, int 
 // -----------------------------------------------------------------------------
 // Kernel: Calcula la suma ponderada de los componentes RGB de cada píxel.
 // ----------------------------------------------------------------------------- 
-__global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int width, int height) {
-    int x = blockIdx.x * blockDim.x + threadIdx.x;
-    int y = blockIdx.y * blockDim.y + threadIdx.y;
-    int idx = y * width + x;
-    if (x < width && y < height) {
-        int weightedSum = static_cast<int>(d_in[idx].r * 0.50f + d_in[idx].g * 0.25f + d_in[idx].b * 0.25f);
-        d_partialMax[idx] = weightedSum;
+__global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int numElements) {
+    extern __shared__ int sdata[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
+    int temp = -2147483648; // valor muy pequeño
+    if (idx < numElements) {
+        int val1 = static_cast<int>(d_in[idx].r * 0.50f + d_in[idx].g * 0.25f + d_in[idx].b * 0.25f);
+        temp = val1;
     }
+    if (idx + blockDim.x < numElements) {
+        int val2 = static_cast<int>(d_in[idx + blockDim.x].r * 0.50f + d_in[idx + blockDim.x].g * 0.25f + d_in[idx + blockDim.x].b * 0.25f);
+        temp = max(temp, val2);
+    }
+    sdata[tid] = temp;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s)
+            sdata[tid] = max(sdata[tid], sdata[tid + s]);
+        __syncthreads();
+    }
+    if (tid == 0)
+        d_partialMax[blockIdx.x] = sdata[0];
 }
+
 
 //__global__ int max(int a, int b) {
 //    return a ? (a >= b) : b;
@@ -288,8 +303,7 @@ __global__ void mergeKernel(const Pixel* d_del, const Pixel* d_bn, Pixel* d_out,
 //   f) Se llama a mergeKernel que fusiona d_out (delineada) y d_orig (BN), almacenando el resultado en d_merge.
 //   g) Se copia d_merge al host.
 // -----------------------------------------------------------------------------
-int procImg(Pixel* pixels, int height, int width,
-    int option, int filterDiv, unsigned int* outCount, int haloSize)
+int procImg(Pixel* pixels, int height, int width,int option, int filterDiv, unsigned int* outCount, int haloSize)
 {
     cudaError_t cudaStatus;
     Pixel* d_in = nullptr;
@@ -561,24 +575,27 @@ int procImg(Pixel* pixels, int height, int width,
             int* d_partialMax = nullptr;
             int* d_max = nullptr;
 
-            cudaMalloc(&d_partialMax, totalPixels * sizeof(int));
-
-            weightedSumKernel <<<gridDim, blockDim >>> (d_in, d_partialMax, width, height);
+            int numElements = width * height;
+            int threadsPerBlock = 512;
+            int blocksForReduction = (numElements + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
+            cudaMalloc(&d_partialMax, blocksForReduction * sizeof(int));
+            weightedSumKernel << <blocksForReduction, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_in, d_partialMax, numElements);
             cudaDeviceSynchronize();
 
-            int curSize = totalPixels;
+            int curSize = blocksForReduction;
             bool firstReduction = true;
             while (curSize > 15) {
-                int threadsPerBlock =  512 ? firstReduction : 15;
-                int newBlocks = (curSize + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
+                int threads = firstReduction ? 512 : 15;
+                int newBlocks = (curSize + threads * 2 - 1) / (threads * 2);
                 cudaMalloc(&d_max, newBlocks * sizeof(int));
-                hashKernel <<<newBlocks, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_partialMax, d_max, curSize);
+                hashKernel<<<newBlocks, threads, threads * sizeof(int)>>>(d_partialMax, d_max, curSize);
                 cudaDeviceSynchronize();
                 cudaFree(d_partialMax);
                 d_partialMax = d_max;
                 curSize = newBlocks;
                 firstReduction = false;
             }
+
 
             int h_max[15];
             cudaMemcpy(h_max, d_partialMax, curSize * sizeof(int), cudaMemcpyDeviceToHost);
