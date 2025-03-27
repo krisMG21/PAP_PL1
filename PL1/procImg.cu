@@ -206,6 +206,9 @@ __global__ void delineateKernel(const Pixel* d_in, Pixel* d_out, int width, int 
     d_out[idx] = adjacentColored ? Pixel{ 0, 0, 0 } : p;
 }
 
+// -----------------------------------------------------------------------------
+// Kernel: Calcula la suma ponderada de los componentes RGB de cada píxel.
+// ----------------------------------------------------------------------------- 
 __global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int width, int height) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
@@ -216,6 +219,11 @@ __global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int width, int
     }
 }
 
+// -----------------------------------------------------------------------------
+// Kernel: Realiza una reducción paralela para encontrar el valor máximo.
+// La reducción se realiza en bloques de tamaño blockDim.x * 2.
+// Los resultados parciales se almacenan en d_out.
+// -----------------------------------------------------------------------------
 __global__ void hashKernel(int* d_in, int* d_out, int n) {
     extern __shared__ int sharedMax[];
     int tid = threadIdx.x;
@@ -239,7 +247,10 @@ __global__ void hashKernel(int* d_in, int* d_out, int n) {
     }
 }
 
-
+// -----------------------------------------------------------------------------
+// Función auxiliar: Normaliza un valor a un rango de caracteres ASCII.
+// Devuelve un valor entre 35 y 125.
+// ----------------------------------------------------------------------------- 
 __host__ int normalizeToASCII(int value) {
     return 35 + ((value * (125 - 35)) / 255);
 }
