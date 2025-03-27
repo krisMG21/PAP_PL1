@@ -568,6 +568,12 @@ int procImg(Pixel* pixels, int height, int width,
             int h_max[15];
             cudaMemcpy(h_max, d_partialMax, curSize * sizeof(int), cudaMemcpyDeviceToHost);
 
+            printf("Unnormalized values: ");
+            for (int i = 0; i < curSize; i++) {
+                printf("%d ", h_max[i]);
+            }
+            printf("\n");
+
             printf("Normalized ASCII values: ");
             for (int i = 0; i < curSize; i++) {
                 h_max[i] = normalizeToASCII(h_max[i]);
