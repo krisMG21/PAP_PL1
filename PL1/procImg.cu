@@ -3,8 +3,9 @@
 
 #include <stdio.h>
 #include <cmath>
-#include "procImg.h" // Se declara Pixel y la función procImg(...)
+#include "procImg.h"
 
+#define BLOCK_SIZE_REDUCC 384
 
 // -----------------------------------------------------------------------------
 // Memoria de constantes para los umbrales de color
@@ -205,67 +206,45 @@ __global__ void delineateKernel(const Pixel* d_in, Pixel* d_out, int width, int 
     // Si el píxel blanco está adyacente a la zona coloreada, lo marcamos como borde (negro).
     d_out[idx] = adjacentColored ? Pixel{ 0, 0, 0 } : p;
 }
-
-// -----------------------------------------------------------------------------
-// Kernel: Calcula la suma ponderada de los componentes RGB de cada píxel.
-// ----------------------------------------------------------------------------- 
-__global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int numElements) {
-    extern __shared__ int sdata[];
+__global__ void reduce_imagen(Pixel* d_in, int* d_partialMax,int total_elements) {
+    __shared__ int sdata[BLOCK_SIZE_REDUCC];
     int tid = threadIdx.x;
-    int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
-    int temp = -2147483648; // valor muy pequeño
-    if (idx < numElements) {
-        int val1 = static_cast<int>(d_in[idx].r * 0.50f + d_in[idx].g * 0.25f + d_in[idx].b * 0.25f);
-        temp = val1;
+    int global_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int value = 0;
+    if (global_id < total_elements) {
+        Pixel pix = d_in[global_id];
+        value = (int)(0.5f * pix.r + 0.25f * pix.g + 0.25f * pix.b);
     }
-    if (idx + blockDim.x < numElements) {
-        int val2 = static_cast<int>(d_in[idx + blockDim.x].r * 0.50f + d_in[idx + blockDim.x].g * 0.25f + d_in[idx + blockDim.x].b * 0.25f);
-        temp = max(temp, val2);
-    }
-    sdata[tid] = temp;
+    sdata[tid] = (global_id < total_elements) ? value : 0;
     __syncthreads();
-    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
-        if (tid < s)
-            sdata[tid] = max(sdata[tid], sdata[tid + s]);
-        __syncthreads();
-    }
-    if (tid == 0)
-        d_partialMax[blockIdx.x] = sdata[0];
-}
-
-
-//__global__ int max(int a, int b) {
-//    return a ? (a >= b) : b;
-//}
-
-// -----------------------------------------------------------------------------
-// Kernel: Realiza una reducción paralela para encontrar el valor máximo.
-// La reducción se realiza en bloques de tamaño blockDim.x * 2.
-// Los resultados parciales se almacenan en d_out.
-// -----------------------------------------------------------------------------
-__global__ void hashKernel(int* d_in, int* d_out, int n) {
-    extern __shared__ int sharedMax[];
-    int tid = threadIdx.x;
-    int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
-
-    sharedMax[tid] = (idx < n) ? d_in[idx] : -2147483648;
-    if (idx + blockDim.x < n) {
-        sharedMax[tid] = max(sharedMax[tid], d_in[idx + blockDim.x]);
-    }
-    __syncthreads();
-
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
-            sharedMax[tid] = max(sharedMax[tid], sharedMax[tid + s]);
+            sdata[tid] = max(sdata[tid], sdata[tid + s]);
         }
         __syncthreads();
     }
-
     if (tid == 0) {
-        d_out[blockIdx.x] = sharedMax[0];
+        d_partialMax[blockIdx.x] = sdata[0];
     }
 }
 
+__global__ void reduce_int_kernel(const int* d_in, int* d_out, int n) {
+    extern __shared__ int sdata[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int val = (idx < n) ? d_in[idx] : 0;
+    sdata[tid] = val;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] = max(sdata[tid], sdata[tid + s]);
+        }
+        __syncthreads();
+    }
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata[0];
+    }
+}
 // -----------------------------------------------------------------------------
 // Función auxiliar: Normaliza un valor a un rango de caracteres ASCII.
 // Devuelve un valor entre 35 y 125.
@@ -570,76 +549,63 @@ int procImg(Pixel* pixels, int height, int width,int option, int filterDiv, unsi
             identifyKernel <<<gridDim, blockDim >>> (d_in, d_out, width, height, pBlue, d_count);
             devResultIn_d_out = true;
         }
-               break;
-		case 5:{ // Pseudo-hash
+                break;
+        case 5: { // Pseudo-hash: reducción en cascada para obtener <=15 valores
+            int numElements = totalPixels;
+            int threadsForReduction = BLOCK_SIZE_REDUCC;  // Tamaño fijo para la primera reducción
+            int blocksForReduction = (numElements + threadsForReduction - 1) / threadsForReduction;
             int* d_partialMax = nullptr;
-            //int* d_max = nullptr;
-
-            int numElements = width * height;
-            int threadsPerBlock = 512;
-            int blocksForReduction = (numElements + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
-            cudaMalloc(&d_partialMax, blocksForReduction * sizeof(int));
-            weightedSumKernel << <blocksForReduction, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_in, d_partialMax, numElements);
-
+            cudaMalloc((void**)&d_partialMax, blocksForReduction * sizeof(int));
+            int sharedMemSize = threadsForReduction * sizeof(int);
+            
+            // Lanzar kernel de reducción inicial: cada bloque reduce sus elementos y escribe 1 valor
+            reduce_imagen<<<blocksForReduction, threadsForReduction, sharedMemSize>>>(d_in, d_partialMax, numElements);
             cudaDeviceSynchronize();
-            printf("\n=== Fase 1: Weighted Sum ===\n");
-            printf("Total pixels: %d\n", numElements);
-            printf("Threads per block: %d\n", threadsPerBlock);
-            printf("Blocks for reduction: %d\n", blocksForReduction);
-
+            
             int curSize = blocksForReduction;
-			int* d_curInput = d_partialMax;
-			int* d_nextOutput = nullptr;
-            int reductionStage = 1;
-
+            int* d_curInput = d_partialMax;
+            int* d_nextOutput = nullptr;
+            
+            // Reducir en cascada hasta obtener 15 o menos valores
             while (curSize > 15) {
-                int newThreadsPerBlock = (curSize > 512) ? 512 : 15;
-                int newBlocks = (curSize + newThreadsPerBlock * 2 - 1) / (newThreadsPerBlock * 2);
-                
-                cudaMalloc(&d_nextOutput, newBlocks * sizeof(int));
-                
-                hashKernel<<<newBlocks, newThreadsPerBlock, newThreadsPerBlock * sizeof(int)>>>(d_curInput, d_nextOutput, curSize);
+                int nextBlocks = (curSize + threadsForReduction - 1) / threadsForReduction;
+                cudaMalloc((void**)&d_nextOutput, nextBlocks * sizeof(int));
+                sharedMemSize = threadsForReduction * sizeof(int);
+                reduce_int_kernel<<<nextBlocks, threadsForReduction, sharedMemSize>>>(d_curInput, d_nextOutput, curSize);
                 cudaDeviceSynchronize();
-
-                printf("\n=== Reduction Stage %d ===\n", reductionStage++);
-                printf("Current Size: %d\n", curSize);
-                printf("New Threads Per Block: %d\n", newThreadsPerBlock);
-                printf("New Blocks: %d\n", newBlocks);
-                
-				if (d_curInput != d_partialMax) cudaFree(d_curInput);
-
+                cudaFree(d_curInput);
                 d_curInput = d_nextOutput;
-                curSize = newBlocks;
+                curSize = nextBlocks;
             }
-
-
-            int h_max[15] = {0};
-            cudaMemcpy(h_max, d_curInput, curSize * sizeof(int), cudaMemcpyDeviceToHost);
-
+            
+            // Copiar el resultado final a host y mostrarlo
+            int h_hash[15] = {0};
+            cudaMemcpy(h_hash, d_curInput, curSize * sizeof(int), cudaMemcpyDeviceToHost);
+            //Print longitud de h_hash
             printf("Unnormalized values: ");
             for (int i = 0; i < curSize; i++) {
-                printf("%d ", h_max[i]);
+                printf("%d ", h_hash[i]);
             }
             printf("\n");
-
+            
             printf("Normalized ASCII values: ");
             for (int i = 0; i < curSize; i++) {
-                h_max[i] = normalizeToASCII(h_max[i]);
-                printf("%d ", static_cast<char>(h_max[i]));
+                int norm = normalizeToASCII(h_hash[i]);
+                printf("%d ", norm);
+            }
+            printf("\nHash String: ");
+            for (int i = 0; i < curSize; i++) {
+                printf("%c", (char)normalizeToASCII(h_hash[i]));
             }
             printf("\n");
-
-			printf("Hash String: ");
-			for (int i = 0; i < curSize; i++) {
-				printf("%c", static_cast<char>(h_max[i]));
-			}
-
-            cudaFree(d_partialMax);
-			if (d_curInput != d_partialMax) cudaFree(d_curInput);
+            
             cudaFree(d_in);
-			cudaFree(d_out);
+            cudaFree(d_partialMax);
+            if (d_curInput != d_partialMax)
+                cudaFree(d_curInput);
             return 0;
-		}
+        }
+        break;            
         default:
             fprintf(stderr, "Opcion %d no reconocida.\n", option);
             cudaFree(d_in);
