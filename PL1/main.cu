@@ -156,7 +156,7 @@ int main() {
     // Convertir a array lineal de Pixel
     std::vector<Pixel> pixels = bmpToPixelArray(bmp);
 
-    // Mostrar menú
+    // Mostrar menÃº
     printf("Opciones\n"
         "  (1) Conversion a Blanco y Negro\n"
         "  (2) Pixelar\n"
@@ -202,7 +202,7 @@ int main() {
           break;
 
     case 3: {
-        // Identificación sin halo
+        // IdentificaciÃ³n sin halo
         unsigned int countR = 0;
         procImg(pixels.data(), height, width, 31, 0, &countR, 0);
         pixelArrayToBMP(bmp, pixels);
@@ -235,7 +235,7 @@ int main() {
           break;
 
     case 4: {
-        // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 según el color
+        // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 segÃºn el color
         printf("Has elegido filtro y delineado.\n");
         printf("Elija el color a delinear:\n (1) Rojo\n (2) Verde\n (3) Azul\n");
         int colorChoice;
@@ -252,7 +252,7 @@ int main() {
             DestroyBMP(bmp);
             return 0;
         }
-        printf("Introduzca el tamaño del halo: ");
+        printf("Introduzca el tamaÃ±o del halo: ");
         int haloSize;
         scanf("%d", &haloSize);
         // Llamada a procImg para la fase 04: se pasa haloSize; filterDiv se puede mantener o pedirse
