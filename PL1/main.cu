@@ -200,7 +200,7 @@ int main() {
           break;
 
     case 3: {
-        // Identificación sin halo
+        // Identificaciï¿½n sin halo
         unsigned int count = 0;
         printf("Elija el color a identificar (1: Rojo, 2: Verde, 3: Azul): ");
         int colorSel;
@@ -229,7 +229,7 @@ int main() {
           break;
 
     case 4: {
-        // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 según el color
+        // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 segÃºn el color
         printf("Has elegido filtro y delineado.\n");
         printf("Elija el color a delinear (1: Rojo, 2: Verde, 3: Azul): ");
         int colorChoice;
@@ -248,7 +248,7 @@ int main() {
         }
         printf("Introduce factor de division del blockDim: ");
         scanf("%d", &filterDiv);
-        printf("Introduzca el tamaño del halo: ");
+        printf("Introduzca el tamaï¿½o del halo: ");
         int haloSize;
         scanf("%d", &haloSize);
         procImg(pixels.data(), height, width, optDelineado, filterDiv, nullptr, haloSize);
@@ -258,7 +258,7 @@ int main() {
 
     case 5: {
         // Pseudo-hash: calcular y mostrar el hash en consola
-        // En esta opción, procImg realiza la reducción y muestra el hash textual.
+        // En esta opciï¿½n, procImg realiza la reducciï¿½n y muestra el hash textual.
         procImg(pixels.data(), height, width, 5, filterDiv, nullptr, 0);
         // No se guarda imagen; se asume que el hash se muestra por consola.
         printf("Hash calculado. Consulte la salida en consola.\n");

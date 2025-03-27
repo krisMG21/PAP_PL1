@@ -219,6 +219,10 @@ __global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int width, int
     }
 }
 
+__global__ int max(int a, int b) {
+    return a ? (a >= b) : b;
+}
+
 // -----------------------------------------------------------------------------
 // Kernel: Realiza una reducción paralela para encontrar el valor máximo.
 // La reducción se realiza en bloques de tamaño blockDim.x * 2.
@@ -568,7 +572,7 @@ int procImg(Pixel* pixels, int height, int width,
             int curSize = totalPixels;
             bool firstReduction = true;
             while (curSize > 15) {
-                int threadsPerBlock = firstReduction ? 512 : 15;
+                int threadsPerBlock =  512 ? firstReduction : 15;
                 int newBlocks = (curSize + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
                 cudaMalloc(&d_max, newBlocks * sizeof(int));
                 hashKernel <<<newBlocks, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_partialMax, d_max, curSize);
