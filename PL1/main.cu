@@ -52,7 +52,8 @@ static int getPosition(const BMPHeader_t* header, int x, int y) {
     return j + i;
 }
 static int CheckHeader(const BMPHeader_t* header) {
-    return header->type == MAGIC_VALUE && header->bits_per_pixel == BITS_PER_PIXEL;
+    return header->type == MAGIC_VALUE &&
+        header->bits_per_pixel == BITS_PER_PIXEL;
 }
 
 // Leer BMP
@@ -131,7 +132,6 @@ void pixelArrayToBMP(BMPImage_t* bmp, const std::vector<Pixel>& in) {
 }
 
 int main() {
-    // Pedir al usuario la ruta de la imagen (valor por defecto)
     char ruta[256];
     memset(ruta, 0, sizeof(ruta));
     const char* defaultFile = "test.bmp";
@@ -153,10 +153,8 @@ int main() {
     int height = bmp->header.height_px;
     printf("Imagen de %d x %d pixeles\n", width, height);
 
-    // Convertir a array lineal de Pixel
     std::vector<Pixel> pixels = bmpToPixelArray(bmp);
 
-    // Mostrar menú
     printf("Opciones\n"
         "  (1) Conversion a Blanco y Negro\n"
         "  (2) Pixelar\n"
@@ -203,41 +201,37 @@ int main() {
 
     case 3: {
         // Identificación sin halo
-        unsigned int countR = 0;
-        procImg(pixels.data(), height, width, 31, 0, &countR, 0);
-        pixelArrayToBMP(bmp, pixels);
-        SaveBMP(bmp, "out_red.bmp");
-        printf("Num pixeles rojos = %u\n", countR);
-
-        DestroyBMP(bmp);
-        bmp = ReadBMP(ruta);
-        pixels = bmpToPixelArray(bmp);
-
-        unsigned int countG = 0;
-        procImg(pixels.data(), height, width, 32, 0, &countG, 0);
-        pixelArrayToBMP(bmp, pixels);
-        SaveBMP(bmp, "out_green.bmp");
-        printf("Num pixeles verdes = %u\n", countG);
-
-        DestroyBMP(bmp);
-        bmp = ReadBMP(ruta);
-        pixels = bmpToPixelArray(bmp);
-
-        unsigned int countB = 0;
-        procImg(pixels.data(), height, width, 33, 0, &countB, 0);
-        pixelArrayToBMP(bmp, pixels);
-        SaveBMP(bmp, "out_blue.bmp");
-        printf("Num pixeles azules = %u\n", countB);
-
-        DestroyBMP(bmp);
-        return 0;
+        unsigned int count = 0;
+        printf("Elija el color a identificar (1: Rojo, 2: Verde, 3: Azul): ");
+        int colorSel;
+        scanf("%d", &colorSel);
+        int optIdent;
+        if (colorSel == 1)
+            optIdent = 31;
+        else if (colorSel == 2)
+            optIdent = 32;
+        else if (colorSel == 3)
+            optIdent = 33;
+        else {
+            printf("Color no valido. Saliendo...\n");
+            DestroyBMP(bmp);
+            return 0;
+        }
+        procImg(pixels.data(), height, width, optIdent, 0, &count, 0);
+        if (colorSel == 1)
+            outName = "out_red.bmp";
+        else if (colorSel == 2)
+            outName = "out_green.bmp";
+        else
+            outName = "out_blue.bmp";
+        printf("Num pixeles identificados = %u\n", count);
     }
           break;
 
     case 4: {
         // Filtro y delineado de zonas de color: se usan las opciones 41,42,43 según el color
         printf("Has elegido filtro y delineado.\n");
-        printf("Elija el color a delinear:\n (1) Rojo\n (2) Verde\n (3) Azul\n");
+        printf("Elija el color a delinear (1: Rojo, 2: Verde, 3: Azul): ");
         int colorChoice;
         scanf("%d", &colorChoice);
         int optDelineado;
@@ -252,23 +246,32 @@ int main() {
             DestroyBMP(bmp);
             return 0;
         }
+        printf("Introduce factor de division del blockDim: ");
+        scanf("%d", &filterDiv);
         printf("Introduzca el tamaño del halo: ");
         int haloSize;
         scanf("%d", &haloSize);
-        // Llamada a procImg para la fase 04: se pasa haloSize; filterDiv se puede mantener o pedirse
         procImg(pixels.data(), height, width, optDelineado, filterDiv, nullptr, haloSize);
         outName = "out_filtro_delineado.bmp";
     }
           break;
 
-    case 5:
-        printf("Opcion 5: Calculo de pseudo-hash (no implementado).\n");
-        outName = "out_hash.bmp";
-        break;
+    case 5: {
+        // Pseudo-hash: calcular y mostrar el hash en consola
+        // En esta opción, procImg realiza la reducción y muestra el hash textual.
+        procImg(pixels.data(), height, width, 5, filterDiv, nullptr, 0);
+        // No se guarda imagen; se asume que el hash se muestra por consola.
+        printf("Hash calculado. Consulte la salida en consola.\n");
+        // Salir inmediatamente
+        DestroyBMP(bmp);
+        return 0;
+    }
+          break;
 
-    case 6:
+    case 6: {
         procImg(pixels.data(), height, width, 6, filterDiv, nullptr, 0);
         outName = "out_inverted.bmp";
+    }
         break;
 
     default:

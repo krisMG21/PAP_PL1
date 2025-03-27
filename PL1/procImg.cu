@@ -13,7 +13,7 @@
 __constant__ int c_threshRed[6];
 __constant__ int c_threshGreen[6];
 __constant__ int c_threshBlue[6];
-int* reduction[][];
+int* reduction[];
 
 // -----------------------------------------------------------------------------
 // Funciones para copiar umbrales desde host a device (const memory)
@@ -271,6 +271,9 @@ __global__ void mergeKernel(const Pixel* d_del, const Pixel* d_bn, Pixel* d_out,
     Pixel pbn = d_bn[idx];
     d_out[idx] = (pd.r == 255 && pd.g == 255 && pd.b == 255) ? pbn : pd;
 }
+//__device__ int max(int a, int b) {
+//    return a ? (a >= b) : b;
+//}
 
 // -----------------------------------------------------------------------------
 // Función principal para procesar la imagen.
@@ -553,7 +556,7 @@ int procImg(Pixel* pixels, int height, int width,
             devResultIn_d_out = true;
         }
                break;
-		case 5: // Pseudo-hash
+		case 5:{ // Pseudo-hash
             int* d_partialMax = nullptr;
             int* d_max = nullptr;
 
@@ -595,7 +598,7 @@ int procImg(Pixel* pixels, int height, int width,
             cudaFree(d_in);
             cudaFree(d_partialMax);
             return 0;
-
+		}
         default:
             fprintf(stderr, "Opcion %d no reconocida.\n", option);
             cudaFree(d_in);
