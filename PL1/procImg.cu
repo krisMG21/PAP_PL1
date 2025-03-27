@@ -219,9 +219,9 @@ __global__ void weightedSumKernel(Pixel* d_in, int* d_partialMax, int width, int
     }
 }
 
-__global__ int max(int a, int b) {
-    return a ? (a >= b) : b;
-}
+//__global__ int max(int a, int b) {
+//    return a ? (a >= b) : b;
+//}
 
 // -----------------------------------------------------------------------------
 // Kernel: Realiza una reducción paralela para encontrar el valor máximo.
@@ -275,9 +275,6 @@ __global__ void mergeKernel(const Pixel* d_del, const Pixel* d_bn, Pixel* d_out,
     Pixel pbn = d_bn[idx];
     d_out[idx] = (pd.r == 255 && pd.g == 255 && pd.b == 255) ? pbn : pd;
 }
-//__device__ int max(int a, int b) {
-//    return a ? (a >= b) : b;
-//}
 
 // -----------------------------------------------------------------------------
 // Función principal para procesar la imagen.
