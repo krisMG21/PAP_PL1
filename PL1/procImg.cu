@@ -542,7 +542,7 @@ int procImg(Pixel* pixels, int height, int width,
             devResultIn_d_out = true;
         }
                break;
-        case 5:
+		case 5: // Pseudo-hash
             int* d_partialMax = nullptr;
             int* d_max = nullptr;
 
@@ -552,14 +552,17 @@ int procImg(Pixel* pixels, int height, int width,
             cudaDeviceSynchronize();
 
             int curSize = totalPixels;
+            bool firstReduction = true;
             while (curSize > 15) {
-                int newBlocks = (curSize + blockDim.x * 2 - 1) / (blockDim.x * 2);
+                int threadsPerBlock = firstReduction ? 512 : 15;
+                int newBlocks = (curSize + threadsPerBlock * 2 - 1) / (threadsPerBlock * 2);
                 cudaMalloc(&d_max, newBlocks * sizeof(int));
-                hashKernel <<<newBlocks, blockDim.x, blockDim.x * sizeof(int) >>> (d_partialMax, d_max, curSize);
+                hashKernel <<<newBlocks, threadsPerBlock, threadsPerBlock * sizeof(int) >> > (d_partialMax, d_max, curSize);
                 cudaDeviceSynchronize();
                 cudaFree(d_partialMax);
                 d_partialMax = d_max;
                 curSize = newBlocks;
+                firstReduction = false;
             }
 
             int h_max[15];
