@@ -206,6 +206,7 @@ __global__ void delineateKernel(const Pixel* d_in, Pixel* d_out, int width, int 
     // Si el píxel blanco está adyacente a la zona coloreada, lo marcamos como borde (negro).
     d_out[idx] = adjacentColored ? Pixel{ 0, 0, 0 } : p;
 }
+
 __global__ void reduce_imagen(Pixel* d_in, int* d_partialMax,int total_elements) {
     __shared__ int sdata[BLOCK_SIZE_REDUCC];
     int tid = threadIdx.x;
