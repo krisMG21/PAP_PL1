@@ -26,10 +26,14 @@ extern "C" {
      *                     - 31: Identificar color rojo
      *                     - 32: Identificar color verde
      *                     - 33: Identificar color azul
-     * @param filterDiv [in]  Factor para redimensionar el blockDim (ej.: si pixelar).
+	 *                     - 41: Outline en color rojo
+	 *                     - 42: Outline en verde
+	 *                     - 43: Outline en azul
+     *                     - 5: Calculo del pseudohash
+     * @param filterDiv [in]  Factor para redimensionar el blockDim (para pixelado e identifacion de colores)
      * @param outCount  [out] Puntero a variable donde se guardará
-     *                  el número de píxeles que cumplen la condición (para 31..33).
-     *                  Si es NULL, se ignora.
+	 *                  el número de píxeles que cumplen la condición (para identificacion de colores)
+     *                  Si es NULL, se ignora
 	 * @param haloSize  [in]  Tamaño del halo para el outline
      * @return          0 si se procesa correctamente; otro valor en caso de error.
      */
