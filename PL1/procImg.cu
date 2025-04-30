@@ -37,7 +37,20 @@ void setColorThresholds() {
     int hostGreen[6] = { 30,  150,   50, 255,   0, 75 };
     int hostBlue[6] = { 0,   200,    0, 249,  100, 255 };
     setRedThresholds(hostRed);
-    setGreenThresholds(hostGreen);
+    setGreenThresholdsdef grayScale(img: List[Pixel]) : List[Pixel] = {
+  @tailrec
+  def loop(remaining: List[Pixel], acc: List[Pixel]): List[Pixel] = {
+    remaining match {
+      case Nil => acc.reverse
+      case pixel::rest =>
+        val mean = (0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b).toInt
+        val newPixel = Pixel(mean, mean, mean)
+        loop(rest, newPixel :: acc)
+    }
+  }
+
+  loop(img, Nil)
+}
     setBlueThresholds(hostBlue);
 }
 
