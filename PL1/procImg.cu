@@ -3,16 +3,9 @@
 
 #include <stdio.h>
 #include <cmath>
-#include "procImg.h" // Se declara Pixel y la función procImg(...)
+#include "procImg.h"
 
-// Funciones Cristian, aun sin probar
-
-
-
-
-
-
-
+#define BLOCK_SIZE_REDUCC 384
 
 // -----------------------------------------------------------------------------
 // Memoria de constantes para los umbrales de color
@@ -21,7 +14,7 @@
 __constant__ int c_threshRed[6];
 __constant__ int c_threshGreen[6];
 __constant__ int c_threshBlue[6];
-int* reduction[][];
+int* reduction[];
 
 // -----------------------------------------------------------------------------
 // Funciones para copiar umbrales desde host a device (const memory)
@@ -44,7 +37,20 @@ void setColorThresholds() {
     int hostGreen[6] = { 30,  150,   50, 255,   0, 75 };
     int hostBlue[6] = { 0,   200,    0, 249,  100, 255 };
     setRedThresholds(hostRed);
-    setGreenThresholds(hostGreen);
+    setGreenThresholdsdef grayScale(img: List[Pixel]) : List[Pixel] = {
+  @tailrec
+  def loop(remaining: List[Pixel], acc: List[Pixel]): List[Pixel] = {
+    remaining match {
+      case Nil => acc.reverse
+      case pixel::rest =>
+        val mean = (0.299 * pixel.r + 0.587 * pixel.g + 0.114 * pixel.b).toInt
+        val newPixel = Pixel(mean, mean, mean)
+        loop(rest, newPixel :: acc)
+    }
+  }
+
+  loop(img, Nil)
+}
     setBlueThresholds(hostBlue);
 }
 
@@ -214,35 +220,51 @@ __global__ void delineateKernel(const Pixel* d_in, Pixel* d_out, int width, int 
     d_out[idx] = adjacentColored ? Pixel{ 0, 0, 0 } : p;
 }
 
-__global__ void weightedSumKernel(Pixel* d_in, float* d_partialMax, int width, int height) {
-    int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx < width * height) {
-        float weightedSum = d_in[idx].r * 0.50f + d_in[idx].g * 0.25f + d_in[idx].b * 0.25f;
-        d_partialMax[idx] = weightedSum;
-    }
-}
-
-__global__ void hashKernel(float* d_in, float* d_out, int n) {
-    extern __shared__ float sharedMax[];
+__global__ void reduce_imagen(Pixel* d_in, int* d_partialMax,int total_elements) {
+    __shared__ int sdata[BLOCK_SIZE_REDUCC];
     int tid = threadIdx.x;
-    int idx = blockIdx.x * blockDim.x * 2 + threadIdx.x;
-
-    sharedMax[tid] = (idx < n) ? d_in[idx] : -FLT_MAX;
-    if (idx + blockDim.x < n) {
-        sharedMax[tid] = fmaxf(sharedMax[tid], d_in[idx + blockDim.x]);
+    int global_id = blockIdx.x * blockDim.x + threadIdx.x;
+    int value = 0;
+    if (global_id < total_elements) {
+        Pixel pix = d_in[global_id];
+        value = (int)(0.5f * pix.r + 0.25f * pix.g + 0.25f * pix.b);
     }
+    sdata[tid] = (global_id < total_elements) ? value : 0;
     __syncthreads();
-
     for (int s = blockDim.x / 2; s > 0; s >>= 1) {
         if (tid < s) {
-            sharedMax[tid] = fmaxf(sharedMax[tid], sharedMax[tid + s]);
+            sdata[tid] = max(sdata[tid], sdata[tid + s]);
         }
         __syncthreads();
     }
-
     if (tid == 0) {
-        d_out[blockIdx.x] = sharedMax[0];
+        d_partialMax[blockIdx.x] = sdata[0];
     }
+}
+
+__global__ void reduce_int_kernel(const int* d_in, int* d_out, int n) {
+    extern __shared__ int sdata[];
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int val = (idx < n) ? d_in[idx] : 0;
+    sdata[tid] = val;
+    __syncthreads();
+    for (int s = blockDim.x / 2; s > 0; s >>= 1) {
+        if (tid < s) {
+            sdata[tid] = max(sdata[tid], sdata[tid + s]);
+        }
+        __syncthreads();
+    }
+    if (tid == 0) {
+        d_out[blockIdx.x] = sdata[0];
+    }
+}
+// -----------------------------------------------------------------------------
+// Función auxiliar: Normaliza un valor a un rango de caracteres ASCII.
+// Devuelve un valor entre 35 y 125.
+// ----------------------------------------------------------------------------- 
+__host__ int normalizeToASCII(int value) {
+    return 35 + ((value * (125 - 35)) / 255);
 }
 
 // -----------------------------------------------------------------------------
@@ -274,8 +296,7 @@ __global__ void mergeKernel(const Pixel* d_del, const Pixel* d_bn, Pixel* d_out,
 //   f) Se llama a mergeKernel que fusiona d_out (delineada) y d_orig (BN), almacenando el resultado en d_merge.
 //   g) Se copia d_merge al host.
 // -----------------------------------------------------------------------------
-int procImg(Pixel* pixels, int height, int width,
-    int option, int filterDiv, unsigned int* outCount, int haloSize)
+int procImg(Pixel* pixels, int height, int width,int option, int filterDiv, unsigned int* outCount, int haloSize)
 {
     cudaError_t cudaStatus;
     Pixel* d_in = nullptr;
@@ -411,7 +432,7 @@ int procImg(Pixel* pixels, int height, int width,
             cudaFree(d_in); cudaFree(d_out); cudaFree(d_orig);
             return 1;
         }
-        identifyKernel << <gridDim, blockDim >> > (d_orig, d_temp, width, height, pThresh, d_count);
+        identifyKernel <<<gridDim, blockDim >>> (d_orig, d_temp, width, height, pThresh, d_count);
 
         // d) Delineado: aplicar delineateKernel sobre d_temp y guardar el resultado en d_del
         Pixel* d_del = nullptr;
@@ -421,11 +442,11 @@ int procImg(Pixel* pixels, int height, int width,
             cudaFree(d_in); cudaFree(d_out); cudaFree(d_orig); cudaFree(d_temp);
             return 1;
         }
-        delineateKernel << <gridDim, blockDim >> > (d_temp, d_del, width, height, haloSize);
+        delineateKernel <<<gridDim, blockDim >>> (d_temp, d_del, width, height, haloSize);
         cudaFree(d_temp);
 
         // e) Convertir d_orig a blanco y negro in-place (toGrayKernel)
-        toGrayKernel << <gridDim, blockDim >> > (d_orig, width, height);
+        toGrayKernel <<<gridDim, blockDim >>> (d_orig, width, height);
 
         // f) Fusionar: mergeKernel combina la imagen delineada (d_del) y la imagen BN (d_orig)
         Pixel* d_merge = nullptr;
@@ -435,7 +456,7 @@ int procImg(Pixel* pixels, int height, int width,
             cudaFree(d_in); cudaFree(d_out); cudaFree(d_orig); cudaFree(d_del);
             return 1;
         }
-        mergeKernel << <gridDim, blockDim >> > (d_del, d_orig, d_merge, width, height);
+        mergeKernel <<<gridDim, blockDim >>> (d_del, d_orig, d_merge, width, height);
         cudaFree(d_del);
         cudaFree(d_orig);
         cudaFree(d_out);
@@ -445,13 +466,15 @@ int procImg(Pixel* pixels, int height, int width,
     else {
         // Para las demás opciones, se procede como antes.
         switch (option) {
-        case 1: // Blanco y Negro (in-place)
-            toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
+        case 1: {// Blanco y Negro (in-place)
+            toGrayKernel <<<gridDim, blockDim >>> (d_in, width, height);
             devResultIn_d_out = false;
+        }
             break;
-        case 6: // Invertir colores (in-place)
-            invertColorsKernel << <gridDim, blockDim >> > (d_in, width, height);
+        case 6: {// Invertir colores (in-place)
+            invertColorsKernel <<<gridDim, blockDim >>> (d_in, width, height);
             devResultIn_d_out = false;
+        }
             break;
         case 21: { // Pixelar en color (out-of-place)
             int newBx = bCandidate / filterDiv;
@@ -471,12 +494,12 @@ int procImg(Pixel* pixels, int height, int width,
             size_t sizeB = nThreads * sizeof(int);
             size_t sizeCount = nThreads * sizeof(int);
             size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
-            pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
+            pixelateKernel <<<gridDim, blockDim, totalNeeded >>> (d_in, d_out, width, height);
             devResultIn_d_out = true;
         }
                break;
         case 22: { // Pixelar BN (BN in-place, luego pixelado out-of-place)
-            toGrayKernel << <gridDim, blockDim >> > (d_in, width, height);
+            toGrayKernel <<<gridDim, blockDim >>> (d_in, width, height);
             cudaDeviceSynchronize();
             int newBx = bCandidate / filterDiv;
             int newBy = bCandidate / filterDiv;
@@ -495,7 +518,7 @@ int procImg(Pixel* pixels, int height, int width,
             size_t sizeB = nThreads * sizeof(int);
             size_t sizeCount = nThreads * sizeof(int);
             size_t totalNeeded = sizeData + sizeR + sizeG + sizeB + sizeCount;
-            pixelateKernel << <gridDim, blockDim, totalNeeded >> > (d_in, d_out, width, height);
+            pixelateKernel <<<gridDim, blockDim, totalNeeded >>> (d_in, d_out, width, height);
             devResultIn_d_out = true;
         }
                break;
@@ -509,7 +532,7 @@ int procImg(Pixel* pixels, int height, int width,
                 cudaFree(d_out);
                 return 1;
             }
-            identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pRed, d_count);
+            identifyKernel <<<gridDim, blockDim >>> (d_in, d_out, width, height, pRed, d_count);
             devResultIn_d_out = true;
         }
                break;
@@ -523,7 +546,7 @@ int procImg(Pixel* pixels, int height, int width,
                 cudaFree(d_out);
                 return 1;
             }
-            identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pGreen, d_count);
+            identifyKernel <<<gridDim, blockDim >>> (d_in, d_out, width, height, pGreen, d_count);
             devResultIn_d_out = true;
         }
                break;
@@ -537,10 +560,66 @@ int procImg(Pixel* pixels, int height, int width,
                 cudaFree(d_out);
                 return 1;
             }
-            identifyKernel << <gridDim, blockDim >> > (d_in, d_out, width, height, pBlue, d_count);
+            identifyKernel <<<gridDim, blockDim >>> (d_in, d_out, width, height, pBlue, d_count);
             devResultIn_d_out = true;
         }
-               break;
+                break;
+        case 5: { // Pseudo-hash: reducción en cascada para obtener <=15 valores
+            int numElements = totalPixels;
+            int threadsForReduction = BLOCK_SIZE_REDUCC;  // Tamaño fijo para la primera reducción
+            int blocksForReduction = (numElements + threadsForReduction - 1) / threadsForReduction;
+            int* d_partialMax = nullptr;
+            cudaMalloc((void**)&d_partialMax, blocksForReduction * sizeof(int));
+            int sharedMemSize = threadsForReduction * sizeof(int);
+            
+            // Lanzar kernel de reducción inicial: cada bloque reduce sus elementos y escribe 1 valor
+            reduce_imagen<<<blocksForReduction, threadsForReduction, sharedMemSize>>>(d_in, d_partialMax, numElements);
+            cudaDeviceSynchronize();
+            
+            int curSize = blocksForReduction;
+            int* d_curInput = d_partialMax;
+            int* d_nextOutput = nullptr;
+            
+            // Reducir en cascada hasta obtener 15 o menos valores
+            while (curSize > 15) {
+                int nextBlocks = (curSize + threadsForReduction - 1) / threadsForReduction;
+                cudaMalloc((void**)&d_nextOutput, nextBlocks * sizeof(int));
+                sharedMemSize = threadsForReduction * sizeof(int);
+                reduce_int_kernel<<<nextBlocks, threadsForReduction, sharedMemSize>>>(d_curInput, d_nextOutput, curSize);
+                cudaDeviceSynchronize();
+                cudaFree(d_curInput);
+                d_curInput = d_nextOutput;
+                curSize = nextBlocks;
+            }
+            
+            // Copiar el resultado final a host y mostrarlo
+            int h_hash[15] = {0};
+            cudaMemcpy(h_hash, d_curInput, curSize * sizeof(int), cudaMemcpyDeviceToHost);
+            //Print longitud de h_hash
+            printf("Unnormalized values: ");
+            for (int i = 0; i < curSize; i++) {
+                printf("%d ", h_hash[i]);
+            }
+            printf("\n");
+            
+            printf("Normalized ASCII values: ");
+            for (int i = 0; i < curSize; i++) {
+                int norm = normalizeToASCII(h_hash[i]);
+                printf("%d ", norm);
+            }
+            printf("\nHash String: ");
+            for (int i = 0; i < curSize; i++) {
+                printf("%c", (char)normalizeToASCII(h_hash[i]));
+            }
+            printf("\n");
+            
+            cudaFree(d_in);
+            cudaFree(d_partialMax);
+            if (d_curInput != d_partialMax)
+                cudaFree(d_curInput);
+            return 0;
+        }
+        break;            
         default:
             fprintf(stderr, "Opcion %d no reconocida.\n", option);
             cudaFree(d_in);
